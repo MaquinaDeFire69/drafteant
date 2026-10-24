@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-bold">{{ nombre_liga }}: próximos partidos</h1>
+  <form hx-get="/lista" hx-trigger="change" hx-target="#lista">
+    <select name="dias" class="rounded-lg border bg-white px-2 py-1 text-sm">
+      {% for d in [7, 14, 30] %}
+      <option value="{{ d }}" {% if d == dias %}selected{% endif %}>Próximos {{ d }} días</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+<div id="lista">
+  {% include "_lista.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% macro barra(pr) %}
+  {% if pr %}
+  <div class="flex h-3 w-full overflow-hidden rounded-full bg-slate-200">
+    <div class="bg-blue-500" style="width: {{ pr.prob_local * 100 }}%"></div>
+    <div class="bg-slate-400" style="width: {{ pr.prob_empate * 100 }}%"></div>
+    <div class="bg-orange-500" style="width: {{ pr.prob_visitante * 100 }}%"></div>
+  </div>
+  <div class="mt-1 flex justify-between text-xs font-medium">
+    <span class="text-blue-600">Local {{ pr.prob_local|pct }}</span>
+    <span class="text-slate-500">Empate {{ pr.prob_empate|pct }}</span>
+    <span class="text-orange-600">Visitante {{ pr.prob_visitante|pct }}</span>
+  </div>
+  {% else %}
+  <p class="text-xs text-slate-400">Sin pronóstico disponible</p>
+  {% endif %}
+{% endmacro %}
+
+{% macro forma(lista) %}
+  {% if lista %}
+  <ul class="divide-y text-sm">
+    {% for f in lista %}
+    <li class="flex items-center justify-between py-1.5">
+      <span class="truncate">{{ f.condicion }} · {{ f.rival }}</span>
+      <span class="flex items-center gap-2">
+        <span class="text-slate-500">{{ f.marcador }}</span>
+        <span class="w-6 text-center rounded text-xs font-bold text-white
+          {% if f.resultado == 'G' %}bg-green-500{% elif f.resultado == 'E' %}bg-slate-400{% else %}bg-red-500{% endif %}">
+          {{ f.resultado }}
+        </span>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-slate-400">Sin partidos recientes.</p>
+  {% endif %}
+{% endmacro %}

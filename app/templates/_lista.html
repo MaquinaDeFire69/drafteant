@@ -1,0 +1,22 @@
+{% from "_macros.html" import barra %}
+{% if not partidos %}
+  <p class="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">
+    No hay partidos en este rango. Ejecuta <code>python -m app.tareas</code> para actualizar los datos.
+  </p>
+{% endif %}
+
+{% for fecha, items in partidos|groupby('fecha') %}
+  <h2 class="mt-6 mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{{ fecha|fecha_es }}</h2>
+  <div class="space-y-3">
+    {% for m in items %}
+    <a href="/partido/{{ m.id }}" class="block rounded-xl border bg-white p-4 shadow-sm transition hover:shadow-md">
+      <div class="mb-3 flex items-center justify-between gap-2 font-semibold">
+        <span class="flex-1 text-left">{{ m.local }}</span>
+        <span class="text-xs text-slate-400">vs</span>
+        <span class="flex-1 text-right">{{ m.visitante }}</span>
+      </div>
+      {{ barra(m.pron) }}
+    </a>
+    {% endfor %}
+  </div>
+{% endfor %}

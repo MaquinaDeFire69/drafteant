@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Pronósticos de Fútbol{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+  <header class="bg-white border-b">
+    <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/" class="font-bold text-lg">⚽ Pronósticos</a>
+      <nav class="flex gap-4 text-sm">
+        <a href="/" class="hover:text-blue-600">Próximos</a>
+        <a href="/precision" class="hover:text-blue-600">Precisión</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-3xl w-full mx-auto px-4 py-6 flex-1">
+    {% block contenido %}{% endblock %}
+  </main>
+
+  <footer class="text-center text-xs text-slate-500 py-6 px-4">
+    Estimaciones estadísticas basadas en resultados históricos. No son garantías ni recomendaciones de apuesta.
+  </footer>
+</body>
+</html>
