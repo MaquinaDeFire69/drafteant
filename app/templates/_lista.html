@@ -10,6 +10,9 @@
   <div class="space-y-3">
     {% for m in items %}
     <a href="/partido/{{ m.id }}" class="block rounded-xl border bg-white p-4 shadow-sm transition hover:shadow-md">
+      {% if not liga %}
+      <p class="mb-1 text-xs text-slate-400">{{ m.nombre_liga }}</p>
+      {% endif %}
       <div class="mb-3 flex items-center justify-between gap-2 font-semibold">
         <span class="flex-1 text-left">{{ m.local }}</span>
         <span class="text-xs text-slate-400">vs</span>

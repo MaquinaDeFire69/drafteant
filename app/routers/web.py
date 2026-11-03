@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.ligas import LIGAS, nombre_liga
 from app.models import Equipo, Partido, Pronostico
 from app.services.cache import modelo_para
 from app.services.consultas import forma, precision, proximos_partidos
@@ -26,24 +27,27 @@ def fecha_es(f) -> str:
 templates.env.filters["fecha_es"] = fecha_es
 templates.env.filters["pct"] = lambda x: f"{x * 100:.0f}%"
 
-LIGA = "E0"
-NOMBRE_LIGA = {"E0": "Premier League"}
+
+def _liga(liga: str) -> str:
+    """'' significa todas las ligas."""
+    return liga if liga in LIGAS else ""
 
 
 @router.get("/")
-def inicio(request: Request, dias: int = 14, db: Session = Depends(get_db)):
-    partidos = proximos_partidos(db, LIGA, dias)
+def inicio(request: Request, liga: str = "", dias: int = 14, db: Session = Depends(get_db)):
+    liga, dias = _liga(liga), min(max(dias, 1), 60)
     return templates.TemplateResponse(request, "index.html", {
-        "partidos": partidos, "dias": dias, "liga": LIGA, "nombre_liga": NOMBRE_LIGA[LIGA],
+        "partidos": proximos_partidos(db, liga or None, dias),
+        "dias": dias, "liga": liga, "ligas": LIGAS,
     })
 
 
 @router.get("/lista")
-def lista(request: Request, dias: int = 14, db: Session = Depends(get_db)):
+def lista(request: Request, liga: str = "", dias: int = 14, db: Session = Depends(get_db)):
     """Fragmento HTML que HTMX intercambia al cambiar el selector."""
-    dias = min(max(dias, 1), 60)
+    liga, dias = _liga(liga), min(max(dias, 1), 60)
     return templates.TemplateResponse(request, "_lista.html", {
-        "partidos": proximos_partidos(db, LIGA, dias),
+        "partidos": proximos_partidos(db, liga or None, dias), "liga": liga,
     })
 
 
@@ -81,12 +85,14 @@ def detalle(request: Request, partido_id: int, db: Session = Depends(get_db)):
 
     return templates.TemplateResponse(request, "partido.html", {
         "p": p, "local": local.nombre, "visita": visita.nombre, "pron": pron, "extra": extra,
+        "nombre_liga": nombre_liga(p.liga),
         "forma_local": forma(db, local.id), "forma_visita": forma(db, visita.id),
     })
 
 
 @router.get("/precision")
-def pagina_precision(request: Request, db: Session = Depends(get_db)):
+def pagina_precision(request: Request, liga: str = "", db: Session = Depends(get_db)):
+    liga = _liga(liga)
     return templates.TemplateResponse(request, "precision.html", {
-        "datos": precision(db, LIGA), "nombre_liga": NOMBRE_LIGA[LIGA],
+        "datos": precision(db, liga or None), "liga": liga, "ligas": LIGAS,
     })

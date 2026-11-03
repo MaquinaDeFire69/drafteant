@@ -1,4 +1,7 @@
 import io
+import sys
+import time
+from datetime import date
 
 import httpx
 import pandas as pd
@@ -6,10 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.database import SessionLocal
+from app.ligas import LIGAS, temporada_actual
 from app.models import Equipo, Partido
 
 URL = "https://www.football-data.co.uk/mmz4281/{codigo}/{liga}.csv"
 COLUMNAS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG"]
+ANIO_INICIO = 2018
 
 
 def codigo_temporada(anio: int) -> str:
@@ -24,6 +29,7 @@ def descargar(liga: str, anio: int) -> pd.DataFrame | None:
     except httpx.HTTPError as e:
         print(f"  [error de red] {liga} {anio}: {e}")
         return None
+    time.sleep(0.3)  # cortesía con el servidor
 
     if r.status_code != 200 or len(r.content) < 100:
         print(f"  [omitida] {liga} {anio}: no disponible")
@@ -89,8 +95,11 @@ def importar(liga: str, anio_inicio: int, anio_fin: int) -> None:
 
 
 if __name__ == "__main__":
-    # Códigos de liga: E0 Premier League, SP1 La Liga, I1 Serie A,
-    # D1 Bundesliga, F1 Ligue 1
-    for liga in ["E0"]:
-        print(f"Importando {liga}...")
-        importar(liga, 2018, 2026)
+    # Sin argumentos: todas las ligas.  Con argumentos: solo esas (ej. N1 P1)
+    codigos = [a.upper() for a in sys.argv[1:]] or list(LIGAS)
+    for liga in codigos:
+        if liga not in LIGAS:
+            print(f"Liga desconocida: {liga}. Opciones: {', '.join(LIGAS)}")
+            continue
+        print(f"Importando {LIGAS[liga]['nombre']} ({liga})...")
+        importar(liga, ANIO_INICIO, temporada_actual(date.today()))

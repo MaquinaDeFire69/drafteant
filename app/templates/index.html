@@ -1,15 +1,24 @@
 {% extends "base.html" %}
 {% block contenido %}
-<div class="flex items-center justify-between mb-4">
-  <h1 class="text-xl font-bold">{{ nombre_liga }}: próximos partidos</h1>
-  <form hx-get="/lista" hx-trigger="change" hx-target="#lista">
-    <select name="dias" class="rounded-lg border bg-white px-2 py-1 text-sm">
-      {% for d in [7, 14, 30] %}
-      <option value="{{ d }}" {% if d == dias %}selected{% endif %}>Próximos {{ d }} días</option>
-      {% endfor %}
-    </select>
-  </form>
+<h1 class="mb-3 text-xl font-bold">Próximos partidos</h1>
+
+<div class="mb-4 flex flex-wrap gap-2 text-sm">
+  <a href="/?dias={{ dias }}"
+     class="rounded-full border px-3 py-1 {% if not liga %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">Todas</a>
+  {% for codigo, l in ligas.items() %}
+  <a href="/?liga={{ codigo }}&dias={{ dias }}"
+     class="rounded-full border px-3 py-1 {% if liga == codigo %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">{{ l.nombre }}</a>
+  {% endfor %}
 </div>
+
+<form hx-get="/lista" hx-trigger="change" hx-target="#lista" class="mb-2 flex justify-end">
+  <input type="hidden" name="liga" value="{{ liga }}">
+  <select name="dias" class="rounded-lg border bg-white px-2 py-1 text-sm">
+    {% for d in [7, 14, 30] %}
+    <option value="{{ d }}" {% if d == dias %}selected{% endif %}>Próximos {{ d }} días</option>
+    {% endfor %}
+  </select>
+</form>
 
 <div id="lista">
   {% include "_lista.html" %}

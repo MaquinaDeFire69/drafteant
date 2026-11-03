@@ -1,26 +1,29 @@
+import math
 from datetime import date, timedelta
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, aliased
 
+from app.ligas import nombre_liga
 from app.models import Equipo, Partido, Pronostico
 
 
-def proximos_partidos(db: Session, liga: str = "E0", dias: int = 14) -> list[dict]:
+def proximos_partidos(db: Session, liga: str | None = None, dias: int = 14) -> list[dict]:
     hoy = date.today()
     local, visita = aliased(Equipo), aliased(Equipo)
-    filas = db.execute(
+    consulta = (
         select(Partido, local.nombre, visita.nombre)
         .join(local, local.id == Partido.local_id)
         .join(visita, visita.id == Partido.visitante_id)
         .where(
-            Partido.liga == liga,
             Partido.goles_local.is_(None),
             Partido.fecha >= hoy,
             Partido.fecha <= hoy + timedelta(days=dias),
         )
-        .order_by(Partido.fecha, Partido.id)
-    ).all()
+    )
+    if liga:
+        consulta = consulta.where(Partido.liga == liga)
+    filas = db.execute(consulta.order_by(Partido.fecha, Partido.liga, Partido.id)).all()
 
     pron = {}
     ids = [p.id for p, _, _ in filas]
@@ -31,7 +34,10 @@ def proximos_partidos(db: Session, liga: str = "E0", dias: int = 14) -> list[dic
             pron[pr.partido_id] = pr  # queda el más reciente
 
     return [
-        {"id": p.id, "fecha": p.fecha, "local": l, "visitante": v, "pron": pron.get(p.id)}
+        {
+            "id": p.id, "fecha": p.fecha, "liga": p.liga, "nombre_liga": nombre_liga(p.liga),
+            "local": l, "visitante": v, "pron": pron.get(p.id),
+        }
         for p, l, v in filas
     ]
 
@@ -65,19 +71,19 @@ def forma(db: Session, equipo_id: int, n: int = 5) -> list[dict]:
     return salida
 
 
-def precision(db: Session, liga: str = "E0") -> dict | None:
+def precision(db: Session, liga: str | None = None) -> dict | None:
     """Compara pronósticos guardados antes del partido con el resultado real."""
-    import math
-
-    filas = db.execute(
+    consulta = (
         select(Partido, Pronostico)
         .join(Pronostico, Pronostico.partido_id == Partido.id)
-        .where(Partido.liga == liga, Partido.goles_local.is_not(None))
+        .where(Partido.goles_local.is_not(None))
         .order_by(Pronostico.id)
-    ).all()
+    )
+    if liga:
+        consulta = consulta.where(Partido.liga == liga)
 
     ultimo = {}
-    for p, pr in filas:
+    for p, pr in db.execute(consulta).all():
         ultimo[p.id] = (p, pr)
     if not ultimo:
         return None
@@ -93,9 +99,4 @@ def precision(db: Session, liga: str = "E0") -> dict | None:
         aciertos += int(probs.index(max(probs)) == real)
         n += 1
 
-    return {
-        "n": n,
-        "acierto": 100 * aciertos / n,
-        "log_loss": log_loss / n,
-        "brier": brier / n,
-    }
+    return {"n": n, "acierto": 100 * aciertos / n, "log_loss": log_loss / n, "brier": brier / n}
