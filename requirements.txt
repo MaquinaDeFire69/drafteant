@@ -1,0 +1,13 @@
+alembic
+fastapi
+httpx
+jinja2
+numpy
+pandas
+psycopg[binary]
+pydantic-settings
+scikit-learn
+scipy
+SQLAlchemy
+statsmodels
+uvicorn[standard]

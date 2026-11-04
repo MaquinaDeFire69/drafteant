@@ -1,6 +1,6 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.database import SessionLocal
 from app.models import Equipo, Partido, Pronostico
@@ -20,10 +20,13 @@ def generar(liga: str = "E0") -> None:
             select(Partido).where(
                 Partido.liga == liga,
                 Partido.goles_local.is_(None),
+                Partido.inicio_utc.is_not(None),
+                Partido.estado.in_(("SCHEDULED", "TIMED")),
                 Partido.fecha >= date.today(),
             )
         ).all()
 
+        publicado_en = datetime.now(timezone.utc)
         guardados = 0
         for p in pendientes:
             local, visita = nombres[p.local_id], nombres[p.visitante_id]
@@ -33,7 +36,6 @@ def generar(liga: str = "E0") -> None:
                 print(f"  [omitido] {local} vs {visita}: {e}")
                 continue
 
-            db.execute(delete(Pronostico).where(Pronostico.partido_id == p.id))
             db.add(Pronostico(
                 partido_id=p.id,
                 prob_local=r["prob_local"],
@@ -42,6 +44,7 @@ def generar(liga: str = "E0") -> None:
                 goles_esperados_local=r["goles_esperados_local"],
                 goles_esperados_visitante=r["goles_esperados_visitante"],
                 version_modelo=r["version_modelo"],
+                publicado_en=publicado_en,
             ))
             guardados += 1
 

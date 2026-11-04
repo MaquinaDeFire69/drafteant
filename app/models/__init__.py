@@ -22,6 +22,10 @@ class Partido(Base):
     visitante_id: Mapped[int] = mapped_column(ForeignKey("equipos.id"))
     goles_local: Mapped[int | None] = mapped_column(Integer)
     goles_visitante: Mapped[int | None] = mapped_column(Integer)
+    # Los partidos históricos de CSV no tienen estos datos, por eso son opcionales.
+    api_partido_id: Mapped[int | None] = mapped_column(Integer, unique=True)
+    inicio_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    estado: Mapped[str] = mapped_column(String(20), default="SCHEDULED", index=True)
 
 
 class Pronostico(Base):
@@ -35,3 +39,5 @@ class Pronostico(Base):
     goles_esperados_visitante: Mapped[float | None] = mapped_column(Float)
     version_modelo: Mapped[str] = mapped_column(String(30))
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Una predicción es un registro histórico: nunca se reemplaza por una posterior.
+    publicado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)

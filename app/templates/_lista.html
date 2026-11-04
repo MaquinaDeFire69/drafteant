@@ -18,6 +18,14 @@
         <span class="text-xs text-slate-400">vs</span>
         <span class="flex-1 text-right">{{ m.visitante }}</span>
       </div>
+      <p class="mb-3 flex items-center justify-between gap-2 text-xs text-slate-500">
+        <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium">{{ m.estado|estado_es }}</span>
+        {% if m.inicio_utc %}
+        <time datetime="{{ m.inicio_utc.isoformat() }}">Inicio {{ m.inicio_utc|hora_mexico }} h · CDMX</time>
+        {% else %}
+        <span>Hora por confirmar</span>
+        {% endif %}
+      </p>
       {{ barra(m.pron) }}
     </a>
     {% endfor %}

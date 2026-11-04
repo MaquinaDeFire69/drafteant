@@ -1,13 +1,11 @@
-from datetime import date
-
 from fastapi import Depends, FastAPI, HTTPException
-from sqlalchemy import select, text
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Equipo, Partido, Pronostico
 from app.routers import web
 from app.services.cache import modelo_para
+from app.services.consultas import proximos_partidos
 
 app = FastAPI(title="Pronósticos de Fútbol")
 app.include_router(web.router)
@@ -36,23 +34,15 @@ def pronostico(local: str, visitante: str, liga: str = "E0"):
 
 
 @app.get("/proximos")
-def proximos(liga: str = "E0", db: Session = Depends(get_db)):
-    local = aliased(Equipo)
-    visita = aliased(Equipo)
-    consulta = (
-        select(Partido, local.nombre, visita.nombre, Pronostico)
-        .join(local, local.id == Partido.local_id)
-        .join(visita, visita.id == Partido.visitante_id)
-        .outerjoin(Pronostico, Pronostico.partido_id == Partido.id)
-        .where(Partido.liga == liga, Partido.goles_local.is_(None), Partido.fecha >= date.today())
-        .order_by(Partido.fecha)
-    )
+def proximos(liga: str = "E0", dias: int = 14, db: Session = Depends(get_db)):
+    """Una fila por partido, con el último pronóstico publicado."""
     return [
         {
-            "fecha": p.fecha, "local": nl, "visitante": nv,
-            "prob_local": round(pr.prob_local, 3) if pr else None,
-            "prob_empate": round(pr.prob_empate, 3) if pr else None,
-            "prob_visitante": round(pr.prob_visitante, 3) if pr else None,
+            "id": m["id"], "fecha": m["fecha"], "inicio_utc": m["inicio_utc"], "estado": m["estado"],
+            "local": m["local"], "visitante": m["visitante"],
+            "prob_local": round(m["pron"].prob_local, 3) if m["pron"] else None,
+            "prob_empate": round(m["pron"].prob_empate, 3) if m["pron"] else None,
+            "prob_visitante": round(m["pron"].prob_visitante, 3) if m["pron"] else None,
         }
-        for p, nl, nv, pr in db.execute(consulta).all()
+        for m in proximos_partidos(db, liga, min(max(dias, 1), 60))
     ]

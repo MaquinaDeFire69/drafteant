@@ -3,7 +3,7 @@ import re
 import sys
 import time
 import unicodedata
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import httpx
 from sqlalchemy import select
@@ -120,7 +120,7 @@ def sincronizar(liga: str, dias: int = 14) -> None:
         API.format(comp=LIGAS[liga]["api"]),
         headers={"X-Auth-Token": settings.football_data_api_key},
         params={
-            "status": "SCHEDULED,TIMED",
+            "status": "SCHEDULED,TIMED,POSTPONED,CANCELLED",
             "dateFrom": hoy.isoformat(),
             "dateTo": (hoy + timedelta(days=dias)).isoformat(),
         },
@@ -158,18 +158,46 @@ def sincronizar(liga: str, dias: int = 14) -> None:
                 sin_pareja.add(m["awayTeam"].get("name"))
             if local is None or visita is None:
                 continue
+            inicio_utc = datetime.fromisoformat(m["utcDate"].replace("Z", "+00:00"))
             filas.append({
-                "fecha": date.fromisoformat(m["utcDate"][:10]),
+                "api_partido_id": m["id"],
+                "fecha": inicio_utc.date(),
+                "inicio_utc": inicio_utc,
+                "estado": m["status"],
                 "liga": liga, "temporada": temporada,
                 "local_id": local, "visitante_id": visita,
-                "goles_local": None, "goles_visitante": None,
             })
 
+        actualizados = creados = 0
+        for fila in filas:
+            # El ID de la API persiste aunque el partido cambie de fecha u hora.
+            partido = db.scalar(select(Partido).where(Partido.api_partido_id == fila["api_partido_id"]))
+            if partido is None:
+                # Asociar los partidos guardados antes de esta migración en la primera sincronización.
+                partido = db.scalar(
+                    select(Partido).where(
+                        Partido.api_partido_id.is_(None),
+                        Partido.liga == liga,
+                        Partido.local_id == fila["local_id"],
+                        Partido.visitante_id == fila["visitante_id"],
+                        Partido.fecha == fila["fecha"],
+                    )
+                )
+            if partido is None:
+                db.add(Partido(goles_local=None, goles_visitante=None, **fila))
+                creados += 1
+                continue
+
+            for campo, valor in fila.items():
+                setattr(partido, campo, valor)
+            actualizados += 1
         if filas:
-            db.execute(insert(Partido).values(filas).on_conflict_do_nothing(constraint="uq_partido"))
             db.commit()
 
-        print(f"  {liga}: {len(filas)} partidos próximos guardados de {len(partidos_api)} recibidos")
+        print(
+            f"  {liga}: {creados} creados y {actualizados} actualizados "
+            f"de {len(partidos_api)} partidos recibidos"
+        )
         if sin_pareja:
             print(f"  Sin coincidencia en {liga} (agrégalos a ALIAS):", sorted(sin_pareja))
 

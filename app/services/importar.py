@@ -87,6 +87,7 @@ def importar(liga: str, anio_inicio: int, anio_fin: int) -> None:
                     "goles_local": stmt.excluded.goles_local,
                     "goles_visitante": stmt.excluded.goles_visitante,
                     "temporada": stmt.excluded.temporada,
+                    "estado": "FINISHED",
                 },
             )
             db.execute(stmt)
