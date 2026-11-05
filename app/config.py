@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str
     football_data_api_key: str = ""
+    odds_api_key: str = ""
     model_config = SettingsConfigDict(env_file=".env")
 
 

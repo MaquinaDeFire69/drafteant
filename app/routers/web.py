@@ -12,7 +12,11 @@ from app.database import get_db
 from app.ligas import LIGAS, nombre_liga
 from app.models import Equipo, Partido, Pronostico
 from app.services.cache import modelo_para
-from app.services.consultas import forma, precision, proximos_partidos, versiones_pronostico
+from app.services.consultas import (
+    agregar_cuotas, forma, parlays, precision, proximos_partidos, selecciones_destacadas,
+    versiones_pronostico,
+)
+from app.services.seguimiento import casas_disponibles, rendimiento_selecciones
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -91,7 +95,7 @@ def detalle(request: Request, partido_id: int, db: Session = Depends(get_db)):
     pron = db.scalars(
         select(Pronostico)
         .where(Pronostico.partido_id == p.id)
-        .order_by(Pronostico.publicado_en.desc(), Pronostico.id.desc())
+        .order_by(Pronostico.publicado_en.desc().nulls_last(), Pronostico.id.desc())
     ).first()
 
     extra = None
@@ -122,4 +126,46 @@ def pagina_precision(
         "datos": precision(db, liga or None, version or None, desde, hasta),
         "liga": liga, "ligas": LIGAS, "version": version,
         "versiones": versiones_pronostico(db, liga or None), "desde": desde, "hasta": hasta,
+    })
+
+
+@router.get("/analisis")
+def pagina_analisis(
+    request: Request,
+    liga: str = "",
+    dias: int = 14,
+    db: Session = Depends(get_db),
+):
+    liga, dias = _liga(liga), min(max(dias, 1), 30)
+    proximos = proximos_partidos(db, liga or None, dias)
+    # El top 10 sirve para explorar, pero los parlays deben considerar todos
+    # los próximos partidos con cuota, incluso si una liga sin cuotas ocupa el top.
+    destacados = agregar_cuotas(db, selecciones_destacadas(proximos, limite=len(proximos)))
+    return templates.TemplateResponse(request, "analisis.html", {
+        "parlays": parlays(destacados),
+        "liga": liga, "ligas": LIGAS, "dias": dias,
+    })
+
+
+@router.get("/simulacion")
+def pagina_simulacion(
+    request: Request,
+    liga: str = "",
+    casa: str = "",
+    min_probabilidad: int = 0,
+    min_valor: int = -100,
+    db: Session = Depends(get_db),
+):
+    liga = _liga(liga)
+    casas = casas_disponibles(db)
+    casa = casa if casa in casas else ""
+    min_probabilidad = min(max(min_probabilidad, 0), 100)
+    min_valor = min(max(min_valor, -100), 100)
+    seguimiento = rendimiento_selecciones(
+        db, liga or None, casa or None, min_probabilidad / 100, min_valor / 100,
+    )
+    return templates.TemplateResponse(request, "simulacion.html", {
+        "seguimiento": seguimiento, "liga": liga, "ligas": LIGAS,
+        "casa": casa, "casas": casas, "min_probabilidad": min_probabilidad,
+        "min_valor": min_valor,
     })

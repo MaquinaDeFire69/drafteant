@@ -1,11 +1,12 @@
 import math
-from datetime import date, timedelta
+from itertools import combinations
+from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import inspect, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.ligas import nombre_liga
-from app.models import Equipo, Partido, Pronostico
+from app.models import Cuota, Equipo, Partido, Pronostico
 
 RESULTADOS = ("local", "empate", "visitante")
 INTERVALOS_CALIBRACION = 10
@@ -35,7 +36,7 @@ def proximos_partidos(db: Session, liga: str | None = None, dias: int = 14) -> l
         for pr in db.scalars(
             select(Pronostico)
             .where(Pronostico.partido_id.in_(ids))
-            .order_by(Pronostico.partido_id, Pronostico.publicado_en, Pronostico.id)
+            .order_by(Pronostico.partido_id, Pronostico.publicado_en.asc().nulls_first(), Pronostico.id)
         ):
             pron[pr.partido_id] = pr  # queda el más reciente
 
@@ -47,6 +48,122 @@ def proximos_partidos(db: Session, liga: str | None = None, dias: int = 14) -> l
         }
         for p, l, v in filas
     ]
+
+
+def selecciones_destacadas(
+    partidos: list[dict],
+    limite: int = 10,
+    ahora: datetime | None = None,
+) -> list[dict]:
+    """Ordena victorias 1X2 futuras por probabilidad del pronóstico guardado."""
+    ahora = ahora or datetime.now(timezone.utc)
+    selecciones = []
+    for partido in partidos:
+        inicio = partido["inicio_utc"]
+        pron = partido["pron"]
+        if inicio is None or inicio <= ahora or pron is None:
+            continue
+        if pron.publicado_en is None or pron.publicado_en >= inicio or pron.publicado_en > ahora:
+            continue
+
+        probabilidades = (pron.prob_local, pron.prob_empate, pron.prob_visitante)
+        if any(not math.isfinite(p) or not 0 <= p <= 1 for p in probabilidades):
+            continue
+
+        lado, probabilidad = max(
+            (("local", pron.prob_local), ("visitante", pron.prob_visitante)),
+            key=lambda item: item[1],
+        )
+        selecciones.append({
+            **partido,
+            "seleccion": partido["local"] if lado == "local" else partido["visitante"],
+            "lado": lado,
+            "probabilidad": probabilidad,
+            "version_modelo": pron.version_modelo,
+            "publicado_en": pron.publicado_en,
+        })
+
+    return sorted(
+        selecciones,
+        key=lambda item: (-item["probabilidad"], item["inicio_utc"], item["id"]),
+    )[:limite]
+
+
+def agregar_cuotas(db: Session, selecciones: list[dict]) -> list[dict]:
+    """Añade la mejor cuota vigente capturada para la versión mostrada del pronóstico."""
+    if not selecciones or not inspect(db.get_bind()).has_table("cuotas"):
+        return selecciones
+    ids = [s["id"] for s in selecciones]
+    por_partido_casa = {}
+    for cuota in db.scalars(
+        select(Cuota).where(Cuota.partido_id.in_(ids))
+        .order_by(Cuota.capturada_en, Cuota.id)
+    ):
+        por_partido_casa[(cuota.partido_id, cuota.casa)] = cuota
+
+    for seleccion in selecciones:
+        candidatas = [
+            c for (partido_id, _), c in por_partido_casa.items()
+            if partido_id == seleccion["id"]
+            and c.pronostico_id == seleccion["pron"].id
+            and c.capturada_en < seleccion["inicio_utc"]
+        ]
+        if not candidatas:
+            continue
+        campo = "cuota_local" if seleccion["lado"] == "local" else "cuota_visitante"
+        por_casa = {c.casa: c for c in candidatas}
+        seleccion["cuotas_por_casa"] = {
+            casa: {
+                "cuota": getattr(cuota, campo),
+                "capturada_en": cuota.capturada_en,
+            }
+            for casa, cuota in por_casa.items()
+        }
+        mejor = max(por_casa.values(), key=lambda c: getattr(c, campo))
+        cuota_decimal = getattr(mejor, campo)
+        seleccion["cuota"] = cuota_decimal
+        seleccion["casa"] = mejor.casa
+        seleccion["cuota_capturada_en"] = mejor.capturada_en
+        seleccion["valor_esperado"] = seleccion["probabilidad"] * cuota_decimal - 1
+    return selecciones
+
+
+def parlays(selecciones: list[dict], limite_por_grupo: int = 5) -> dict[str, list[dict]]:
+    """Forma parlays de dos partidos con cuotas de una misma casa.
+
+    La probabilidad conjunta es el producto de ambas probabilidades, por lo que
+    se usa como aproximación bajo independencia entre partidos distintos.
+    """
+    grupos = {"seguras": [], "analizar": [], "riesgosas": [], "regalar_dinero": []}
+    candidatas = [s for s in selecciones if s.get("cuotas_por_casa")]
+    for primera, segunda in combinations(candidatas, 2):
+        casas_comunes = set(primera["cuotas_por_casa"]) & set(segunda["cuotas_por_casa"])
+        if not casas_comunes:
+            continue
+        casa = max(
+            casas_comunes,
+            key=lambda c: primera["cuotas_por_casa"][c]["cuota"] * segunda["cuotas_por_casa"][c]["cuota"],
+        )
+        cuota = primera["cuotas_por_casa"][casa]["cuota"] * segunda["cuotas_por_casa"][casa]["cuota"]
+        probabilidad = primera["probabilidad"] * segunda["probabilidad"]
+        if probabilidad >= 0.70:
+            grupo = "seguras"
+        elif probabilidad >= 0.60:
+            grupo = "analizar"
+        elif probabilidad >= 0.40:
+            grupo = "riesgosas"
+        elif probabilidad >= 0.20:
+            grupo = "regalar_dinero"
+        else:
+            continue
+        grupos[grupo].append({
+            "selecciones": (primera, segunda), "probabilidad": probabilidad,
+            "cuota": cuota, "casa": casa, "valor_esperado": probabilidad * cuota - 1,
+        })
+    for grupo in grupos.values():
+        grupo.sort(key=lambda p: (-p["probabilidad"], -p["valor_esperado"], -p["cuota"]))
+        del grupo[limite_por_grupo:]
+    return grupos
 
 
 def forma(db: Session, equipo_id: int, n: int = 5) -> list[dict]:

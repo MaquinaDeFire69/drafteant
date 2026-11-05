@@ -41,3 +41,39 @@ class Pronostico(Base):
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     # Una predicción es un registro histórico: nunca se reemplaza por una posterior.
     publicado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class Cuota(Base):
+    __tablename__ = "cuotas"
+    __table_args__ = (
+        UniqueConstraint("evento_api_id", "casa", "actualizada_en", name="uq_cuota_evento_casa_actualizacion"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    partido_id: Mapped[int] = mapped_column(ForeignKey("partidos.id"), index=True)
+    pronostico_id: Mapped[int | None] = mapped_column(ForeignKey("pronosticos.id"))
+    evento_api_id: Mapped[str] = mapped_column(String(80))
+    casa: Mapped[str] = mapped_column(String(80))
+    cuota_local: Mapped[float] = mapped_column(Float)
+    cuota_empate: Mapped[float] = mapped_column(Float)
+    cuota_visitante: Mapped[float] = mapped_column(Float)
+    actualizada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    capturada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class SeleccionSeguimiento(Base):
+    __tablename__ = "selecciones_seguimiento"
+    __table_args__ = (
+        UniqueConstraint("pronostico_id", name="uq_seleccion_pronostico"),
+        UniqueConstraint("cuota_id", name="uq_seleccion_cuota"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    partido_id: Mapped[int] = mapped_column(ForeignKey("partidos.id"), index=True)
+    pronostico_id: Mapped[int] = mapped_column(ForeignKey("pronosticos.id"))
+    cuota_id: Mapped[int] = mapped_column(ForeignKey("cuotas.id"))
+    lado: Mapped[str] = mapped_column(String(10))
+    probabilidad: Mapped[float] = mapped_column(Float)
+    cuota_decimal: Mapped[float] = mapped_column(Float)
+    casa: Mapped[str] = mapped_column(String(80))
+    seleccionada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

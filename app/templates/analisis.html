@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block titulo %}Análisis de partidos{% endblock %}
+{% block contenido %}
+<h1 class="mb-2 text-xl font-bold">Análisis</h1>
+<p class="mb-4 text-sm text-slate-500">Combinaciones de dos partidos futuros según las probabilidades del modelo y cuotas capturadas.</p>
+
+<div class="mb-4 flex flex-wrap gap-2 text-sm">
+  <a href="/analisis?dias={{ dias }}" class="rounded-full border px-3 py-1 {% if not liga %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">Todas</a>
+  {% for codigo, l in ligas.items() %}
+  <a href="/analisis?liga={{ codigo }}&dias={{ dias }}" class="rounded-full border px-3 py-1 {% if liga == codigo %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">{{ l.nombre }}</a>
+  {% endfor %}
+</div>
+
+<section class="mb-6 rounded-xl border bg-white p-4 shadow-sm">
+  <div class="flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <h2 class="font-semibold">Parlays de dos selecciones</h2>
+      <p class="mt-1 text-sm text-slate-500">Cada combinación usa dos partidos distintos y cuotas de la misma casa. Se muestran hasta cinco por grupo.</p>
+    </div>
+    <form method="get" class="flex items-end gap-2 text-sm">
+      <input type="hidden" name="liga" value="{{ liga }}">
+      <label class="grid gap-1"><span class="text-xs text-slate-500">Próximos</span>
+        <select name="dias" class="rounded border px-2 py-1.5">
+          {% for d in [7, 14, 30] %}<option value="{{ d }}" {% if dias == d %}selected{% endif %}>{{ d }} días</option>{% endfor %}
+        </select>
+      </label>
+      <button class="rounded bg-slate-800 px-3 py-1.5 font-medium text-white hover:bg-slate-700">Ver</button>
+    </form>
+  </div>
+  {% for grupo, titulo, descripcion in [
+    ('seguras', 'Seguras', '70 % o más de probabilidad conjunta'),
+    ('analizar', 'Para analizar', '60–69 % de probabilidad conjunta'),
+    ('riesgosas', 'Riesgosas', '40–59 % de probabilidad conjunta'),
+    ('regalar_dinero', 'Por si quieres regalar tu dinero', '20–39 % de probabilidad conjunta')
+  ] %}
+  <div class="mt-5 rounded-lg border bg-slate-50 p-3">
+    <h3 class="font-semibold">{{ titulo }}</h3>
+    <p class="text-xs text-slate-600">{{ descripcion }}</p>
+    {% if parlays[grupo] %}
+    <div class="mt-2 divide-y">
+      {% for parlay in parlays[grupo] %}
+      <div class="py-3 text-sm">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <span class="font-semibold">{{ parlay.probabilidad|pct }} · paga x{{ '%.2f'|format(parlay.cuota) }}</span>
+          <span class="text-right text-xs">{{ parlay.casa }} · valor esperado {{ '%+.1f'|format(parlay.valor_esperado * 100) }}%</span>
+        </div>
+        <ol class="mt-1 list-decimal pl-5 text-slate-700">
+          {% for m in parlay.selecciones %}
+          <li><a href="/partido/{{ m.id }}" class="hover:text-blue-700">{{ m.seleccion }} gana: {{ m.local }} vs {{ m.visitante }}</a> <span class="text-xs text-slate-500">({{ m.probabilidad|pct }} · {{ m.fecha|fecha_es }} {{ m.inicio_utc|hora_mexico }} h)</span></li>
+          {% endfor %}
+        </ol>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="mt-2 text-sm text-slate-600">No hay combinaciones en este rango.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <p class="mt-3 border-t pt-3 text-xs text-slate-500">“Paga x2.00” es cuota decimal: 100 unidades acertadas retornan 200 en total. El valor esperado es otro dato: probabilidad del modelo × cuota − 1. Las combinaciones por debajo de 20 % no se muestran.</p>
+</section>
+
+{% endblock %}
