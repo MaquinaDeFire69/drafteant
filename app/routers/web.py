@@ -140,16 +140,18 @@ def pagina_analisis(
     request: Request,
     liga: str = "",
     dias: int = 14,
+    cantidad: int = 2,
     db: Session = Depends(get_db),
 ):
     liga, dias = _liga(liga), min(max(dias, 1), 30)
+    cantidad = min(max(cantidad, 2), 5)
     proximos = proximos_partidos(db, liga or None, dias)
     # El top 10 sirve para explorar, pero los parlays deben considerar todos
     # los próximos partidos con cuota, incluso si una liga sin cuotas ocupa el top.
     destacados = agregar_cuotas(db, selecciones_destacadas(proximos, limite=len(proximos)))
     return templates.TemplateResponse(request, "analisis.html", {
-        "parlays": parlays(destacados),
-        "liga": liga, "ligas": LIGAS, "dias": dias,
+        "parlays": parlays(destacados, cantidad=cantidad),
+        "liga": liga, "ligas": LIGAS, "dias": dias, "cantidad": cantidad,
     })
 
 

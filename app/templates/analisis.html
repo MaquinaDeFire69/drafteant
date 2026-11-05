@@ -2,26 +2,31 @@
 {% block titulo %}Análisis de partidos{% endblock %}
 {% block contenido %}
 <h1 class="mb-2 text-xl font-bold">Análisis</h1>
-<p class="mb-4 text-sm text-slate-500">Combinaciones de dos partidos futuros según las probabilidades del modelo y cuotas capturadas.</p>
+<p class="mb-4 text-sm text-slate-500">Combinaciones de 2 a 5 partidos futuros según las probabilidades del modelo y cuotas capturadas.</p>
 
 <div class="mb-4 flex flex-wrap gap-2 text-sm">
-  <a href="/analisis?dias={{ dias }}" class="rounded-full border px-3 py-1 {% if not liga %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">Todas</a>
+  <a href="/analisis?dias={{ dias }}&cantidad={{ cantidad }}" class="rounded-full border px-3 py-1 {% if not liga %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">Todas</a>
   {% for codigo, l in ligas.items() %}
-  <a href="/analisis?liga={{ codigo }}&dias={{ dias }}" class="rounded-full border px-3 py-1 {% if liga == codigo %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">{{ l.nombre }}</a>
+  <a href="/analisis?liga={{ codigo }}&dias={{ dias }}&cantidad={{ cantidad }}" class="rounded-full border px-3 py-1 {% if liga == codigo %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">{{ l.nombre }}</a>
   {% endfor %}
 </div>
 
 <section class="mb-6 rounded-xl border bg-white p-4 shadow-sm">
   <div class="flex flex-wrap items-end justify-between gap-3">
     <div>
-      <h2 class="font-semibold">Parlays de dos selecciones</h2>
-      <p class="mt-1 text-sm text-slate-500">Cada combinación usa dos partidos distintos y cuotas de la misma casa. Se muestran hasta cinco por grupo.</p>
+      <h2 class="font-semibold">Parlays de {{ cantidad }} selecciones</h2>
+      <p class="mt-1 text-sm text-slate-500">Elige cuántos partidos combinar. Todas las selecciones de un parlay usan la misma casa. Se muestran hasta cinco por grupo.</p>
     </div>
     <form method="get" class="flex items-end gap-2 text-sm">
       <input type="hidden" name="liga" value="{{ liga }}">
       <label class="grid gap-1"><span class="text-xs text-slate-500">Próximos</span>
         <select name="dias" class="rounded border px-2 py-1.5">
           {% for d in [7, 14, 30] %}<option value="{{ d }}" {% if dias == d %}selected{% endif %}>{{ d }} días</option>{% endfor %}
+        </select>
+      </label>
+      <label class="grid gap-1"><span class="text-xs text-slate-500">Cantidad de partidos</span>
+        <select name="cantidad" class="rounded border px-2 py-1.5">
+          {% for n in [2, 3, 4, 5] %}<option value="{{ n }}" {% if cantidad == n %}selected{% endif %}>{{ n }} selecciones</option>{% endfor %}
         </select>
       </label>
       <button class="rounded bg-slate-800 px-3 py-1.5 font-medium text-white hover:bg-slate-700">Ver</button>

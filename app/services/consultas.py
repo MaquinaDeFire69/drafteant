@@ -132,24 +132,30 @@ def agregar_cuotas(db: Session, selecciones: list[dict]) -> list[dict]:
     return selecciones
 
 
-def parlays(selecciones: list[dict], limite_por_grupo: int = 5) -> dict[str, list[dict]]:
-    """Forma parlays de dos partidos con cuotas de una misma casa.
+def parlays(
+    selecciones: list[dict], limite_por_grupo: int = 5, cantidad: int = 2,
+) -> dict[str, list[dict]]:
+    """Forma parlays de 2 a 5 partidos con cuotas de una misma casa.
 
     La probabilidad conjunta es el producto de ambas probabilidades, por lo que
     se usa como aproximación bajo independencia entre partidos distintos.
     """
+    cantidad = min(max(cantidad, 2), 5)
     grupos = {"seguras": [], "analizar": [], "riesgosas": [], "regalar_dinero": []}
     candidatas = [s for s in selecciones if s.get("cuotas_por_casa")]
-    for primera, segunda in combinations(candidatas, 2):
-        casas_comunes = set(primera["cuotas_por_casa"]) & set(segunda["cuotas_por_casa"])
+    # Evita que combinaciones de 4–5 partidos crezcan de forma explosiva.
+    if cantidad >= 4:
+        candidatas = sorted(candidatas, key=lambda s: -s["probabilidad"])[:16]
+    for combinacion in combinations(candidatas, cantidad):
+        casas_comunes = set.intersection(*(set(s["cuotas_por_casa"]) for s in combinacion))
         if not casas_comunes:
             continue
         casa = max(
             casas_comunes,
-            key=lambda c: primera["cuotas_por_casa"][c]["cuota"] * segunda["cuotas_por_casa"][c]["cuota"],
+            key=lambda c: math.prod(s["cuotas_por_casa"][c]["cuota"] for s in combinacion),
         )
-        cuota = primera["cuotas_por_casa"][casa]["cuota"] * segunda["cuotas_por_casa"][casa]["cuota"]
-        probabilidad = primera["probabilidad"] * segunda["probabilidad"]
+        cuota = math.prod(s["cuotas_por_casa"][casa]["cuota"] for s in combinacion)
+        probabilidad = math.prod(s["probabilidad"] for s in combinacion)
         if probabilidad >= 0.70:
             grupo = "seguras"
         elif probabilidad >= 0.60:
@@ -161,7 +167,7 @@ def parlays(selecciones: list[dict], limite_por_grupo: int = 5) -> dict[str, lis
         else:
             continue
         grupos[grupo].append({
-            "selecciones": (primera, segunda), "probabilidad": probabilidad,
+            "selecciones": combinacion, "probabilidad": probabilidad,
             "cuota": cuota, "casa": casa, "valor_esperado": probabilidad * cuota - 1,
             "probabilidad_mercado": 1 / cuota,
             "diferencia_modelo_mercado": probabilidad - (1 / cuota),

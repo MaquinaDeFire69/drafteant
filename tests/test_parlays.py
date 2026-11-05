@@ -32,6 +32,15 @@ class ParlaysTest(unittest.TestCase):
             "seguras": [], "analizar": [], "riesgosas": [], "regalar_dinero": [],
         })
 
+    def test_respeta_cantidad_de_selecciones(self):
+        grupos = parlays([
+            seleccion(1, 0.9), seleccion(2, 0.85), seleccion(3, 0.8),
+            seleccion(4, 0.75),
+        ], cantidad=3)
+        encontrados = [parlay for grupo in grupos.values() for parlay in grupo]
+        self.assertTrue(encontrados)
+        self.assertTrue(all(len(parlay["selecciones"]) == 3 for parlay in encontrados))
+
 
 if __name__ == "__main__":
     unittest.main()

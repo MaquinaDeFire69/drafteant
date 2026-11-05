@@ -458,8 +458,8 @@ def crear_parlay_simulado(
     if origen not in {"modelo", "personal"}:
         raise ValueError("Origen de parlay inválido")
     ids = list(dict.fromkeys(partido_ids))
-    if not 2 <= len(ids) <= 4:
-        raise ValueError("El parlay debe tener entre 2 y 4 partidos distintos")
+    if not 2 <= len(ids) <= 5:
+        raise ValueError("El parlay debe tener entre 2 y 5 partidos distintos")
     por_id = {s["id"]: s for s in candidatas_parlay(db)}
     try:
         selecciones = [por_id[identificador] for identificador in ids]
