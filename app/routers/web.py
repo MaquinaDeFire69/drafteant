@@ -1,22 +1,28 @@
 from datetime import date
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode
 from zoneinfo import ZoneInfo
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.ligas import LIGAS, nombre_liga
-from app.models import Equipo, Partido, Pronostico
+from app.models import Equipo, ParlaySimulado, Partido, Pronostico, SeleccionSeguimiento
 from app.services.cache import modelo_para
 from app.services.consultas import (
     agregar_cuotas, forma, parlays, precision, proximos_partidos, selecciones_destacadas,
     versiones_pronostico,
 )
-from app.services.seguimiento import casas_disponibles, rendimiento_selecciones
+from app.services.seguimiento import (
+    candidatas_parlay, casas_disponibles, configuracion_exposicion, crear_parlay_simulado, curva_banca,
+    crear_estrategia, estrategias, exposicion_activa, guardar_configuracion_exposicion,
+    parlays_modelo_disponibles, rendimiento_parlays, rendimiento_selecciones, validar_exposicion_parlay,
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -154,6 +160,12 @@ def pagina_simulacion(
     casa: str = "",
     min_probabilidad: int = 0,
     min_valor: int = -100,
+    cuota_min: float | None = None,
+    cuota_max: float | None = None,
+    banca_inicial: float | None = None,
+    casa_parlay: str = "",
+    mensaje: str = "",
+    error: str = "",
     db: Session = Depends(get_db),
 ):
     liga = _liga(liga)
@@ -161,11 +173,156 @@ def pagina_simulacion(
     casa = casa if casa in casas else ""
     min_probabilidad = min(max(min_probabilidad, 0), 100)
     min_valor = min(max(min_valor, -100), 100)
+    configuracion = configuracion_exposicion(db)
+    banca_inicial = configuracion["banca_inicial"] if banca_inicial is None else min(max(banca_inicial, 1.0), 100_000.0)
     seguimiento = rendimiento_selecciones(
-        db, liga or None, casa or None, min_probabilidad / 100, min_valor / 100,
+        db, liga or None, casa or None, min_probabilidad / 100, min_valor / 100, cuota_min, cuota_max,
     )
+    curva = curva_banca(seguimiento["filas_para_curva"], banca_inicial)
+    estrategias_con_rendimiento = []
+    for estrategia in estrategias(db):
+        estrategias_con_rendimiento.append({
+            "estrategia": estrategia,
+            "rendimiento": rendimiento_selecciones(
+                db, estrategia.liga, estrategia.casa, estrategia.min_probabilidad,
+                estrategia.min_valor, estrategia.cuota_min, estrategia.cuota_max,
+                monto=estrategia.monto,
+            ),
+        })
+    candidatas = candidatas_parlay(db)
+    casas_parlay = sorted({casa for s in candidatas for casa in s.get("cuotas_por_casa", {})})
+    casa_parlay = casa_parlay if casa_parlay in casas_parlay else (casas_parlay[0] if casas_parlay else "")
+    seleccionables = [s for s in candidatas if casa_parlay in s.get("cuotas_por_casa", {})]
+    parlays_guardados = rendimiento_parlays(db)
+    rendimiento_por_tipo = [{
+        "tipo": "Individuales", "total": seguimiento["total"],
+        "evaluados": seguimiento["evaluadas"], "ganados": seguimiento["aciertos"],
+        "ganancia": seguimiento["ganancia"], "roi": seguimiento["roi"],
+    }, *parlays_guardados["por_tipo"]]
     return templates.TemplateResponse(request, "simulacion.html", {
         "seguimiento": seguimiento, "liga": liga, "ligas": LIGAS,
         "casa": casa, "casas": casas, "min_probabilidad": min_probabilidad,
-        "min_valor": min_valor,
+        "min_valor": min_valor, "parlays_modelo": parlays_modelo_disponibles(db),
+        "parlays_guardados": parlays_guardados, "rendimiento_por_tipo": rendimiento_por_tipo,
+        "casa_parlay": casa_parlay,
+        "casas_parlay": casas_parlay, "seleccionables": seleccionables,
+        "mensaje": mensaje, "error": error,
+        "cuota_min": cuota_min, "cuota_max": cuota_max,
+        "estrategias": estrategias_con_rendimiento, "curva": curva,
+        "exposicion": exposicion_activa(db),
     })
+
+
+async def _formulario(request: Request) -> dict[str, list[str]]:
+    cuerpo = (await request.body()).decode("utf-8")
+    return parse_qs(cuerpo, keep_blank_values=True)
+
+
+def _redireccion_simulacion(campo: str, texto: str) -> RedirectResponse:
+    return RedirectResponse(f"/simulacion?{urlencode({campo: texto})}", status_code=303)
+
+
+@router.post("/simulacion/parlays/modelo")
+async def guardar_parlay_modelo(request: Request, db: Session = Depends(get_db)):
+    datos = await _formulario(request)
+    clave = datos.get("clave", [""])[0]
+    try:
+        candidato = next(p for p in parlays_modelo_disponibles(db) if p["clave"] == clave)
+        avisos = validar_exposicion_parlay(db, [s["id"] for s in candidato["selecciones"]], datos.get("monto", ["100"])[0])
+        if avisos and configuracion_exposicion(db)["bloquear_exceso"]:
+            raise ValueError("No se guardó: " + "; ".join(avisos))
+        crear_parlay_simulado(
+            db, "modelo", candidato["casa"],
+            [s["id"] for s in candidato["selecciones"]], datos.get("monto", ["100"])[0],
+        )
+        db.commit()
+    except (StopIteration, ValueError) as exc:
+        db.rollback()
+        return _redireccion_simulacion("error", str(exc) or "El parlay ya no está disponible")
+    texto = "Parlay del modelo agregado a la simulación"
+    if avisos:
+        texto += ". Advertencia: " + "; ".join(avisos)
+    return _redireccion_simulacion("mensaje", texto)
+
+
+@router.post("/simulacion/exposicion")
+async def guardar_exposicion(request: Request, db: Session = Depends(get_db)):
+    datos = await _formulario(request)
+    try:
+        guardar_configuracion_exposicion(
+            db, datos.get("banca_inicial", ["1000"])[0],
+            datos.get("limite_partido", ["10"])[0], datos.get("limite_equipo", ["20"])[0],
+            datos.get("bloquear_exceso", [""])[0] == "on",
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return _redireccion_simulacion("error", str(exc))
+    return _redireccion_simulacion("mensaje", "Límites de exposición actualizados")
+
+
+@router.post("/simulacion/estrategias")
+async def guardar_estrategia(request: Request, db: Session = Depends(get_db)):
+    datos = await _formulario(request)
+    try:
+        crear_estrategia(
+            db, datos.get("nombre", [""])[0], datos.get("liga", [""])[0], datos.get("casa", [""])[0],
+            float(datos.get("min_probabilidad", ["0"])[0]) / 100,
+            float(datos.get("min_valor", ["-100"])[0]) / 100,
+            float(datos["cuota_min"][0]) if datos.get("cuota_min", [""])[0] else None,
+            float(datos["cuota_max"][0]) if datos.get("cuota_max", [""])[0] else None,
+            datos.get("monto", ["100"])[0],
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return _redireccion_simulacion("error", str(exc))
+    return _redireccion_simulacion("mensaje", "Estrategia guardada; usa sus reglas para comparar el histórico")
+
+
+async def _cambiar_estado(request: Request, registro, db: Session) -> RedirectResponse:
+    datos = await _formulario(request)
+    estado = datos.get("estado_registro", [""])[0]
+    if estado not in {"simulada", "apostada", "descartada"}:
+        return _redireccion_simulacion("error", "Estado de seguimiento inválido")
+    registro.estado_registro = estado
+    db.commit()
+    return _redireccion_simulacion("mensaje", "Estado de seguimiento actualizado")
+
+
+@router.post("/simulacion/selecciones/{seleccion_id}/estado")
+async def cambiar_estado_seleccion(seleccion_id: int, request: Request, db: Session = Depends(get_db)):
+    seleccion = db.get(SeleccionSeguimiento, seleccion_id)
+    if seleccion is None:
+        raise HTTPException(status_code=404, detail="Selección no encontrada")
+    return await _cambiar_estado(request, seleccion, db)
+
+
+@router.post("/simulacion/parlays/{parlay_id}/estado")
+async def cambiar_estado_parlay(parlay_id: int, request: Request, db: Session = Depends(get_db)):
+    parlay = db.get(ParlaySimulado, parlay_id)
+    if parlay is None:
+        raise HTTPException(status_code=404, detail="Parlay no encontrado")
+    return await _cambiar_estado(request, parlay, db)
+
+
+@router.post("/simulacion/parlays/personal")
+async def guardar_parlay_personal(request: Request, db: Session = Depends(get_db)):
+    datos = await _formulario(request)
+    try:
+        ids = [int(identificador) for identificador in datos.get("partido_id", [])]
+        avisos = validar_exposicion_parlay(db, ids, datos.get("monto", ["100"])[0])
+        if avisos and configuracion_exposicion(db)["bloquear_exceso"]:
+            raise ValueError("No se guardó: " + "; ".join(avisos))
+        crear_parlay_simulado(
+            db, "personal", datos.get("casa_parlay", [""])[0], ids,
+            datos.get("monto", ["100"])[0],
+        )
+        db.commit()
+    except (TypeError, ValueError) as exc:
+        db.rollback()
+        return _redireccion_simulacion("error", str(exc) or "No se pudo crear el parlay")
+    texto = "Parlay personal agregado a la simulación"
+    if avisos:
+        texto += ". Advertencia: " + "; ".join(avisos)
+    return _redireccion_simulacion("mensaje", texto)

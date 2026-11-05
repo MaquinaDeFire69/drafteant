@@ -116,6 +116,8 @@ def agregar_cuotas(db: Session, selecciones: list[dict]) -> list[dict]:
             casa: {
                 "cuota": getattr(cuota, campo),
                 "capturada_en": cuota.capturada_en,
+                "probabilidad_mercado": 1 / getattr(cuota, campo),
+                "diferencia_modelo_mercado": seleccion["probabilidad"] - (1 / getattr(cuota, campo)),
             }
             for casa, cuota in por_casa.items()
         }
@@ -125,6 +127,8 @@ def agregar_cuotas(db: Session, selecciones: list[dict]) -> list[dict]:
         seleccion["casa"] = mejor.casa
         seleccion["cuota_capturada_en"] = mejor.capturada_en
         seleccion["valor_esperado"] = seleccion["probabilidad"] * cuota_decimal - 1
+        seleccion["probabilidad_mercado"] = 1 / cuota_decimal
+        seleccion["diferencia_modelo_mercado"] = seleccion["probabilidad"] - seleccion["probabilidad_mercado"]
     return selecciones
 
 
@@ -159,6 +163,8 @@ def parlays(selecciones: list[dict], limite_por_grupo: int = 5) -> dict[str, lis
         grupos[grupo].append({
             "selecciones": (primera, segunda), "probabilidad": probabilidad,
             "cuota": cuota, "casa": casa, "valor_esperado": probabilidad * cuota - 1,
+            "probabilidad_mercado": 1 / cuota,
+            "diferencia_modelo_mercado": probabilidad - (1 / cuota),
         })
     for grupo in grupos.values():
         grupo.sort(key=lambda p: (-p["probabilidad"], -p["valor_esperado"], -p["cuota"]))

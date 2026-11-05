@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from sqlalchemy import String, Integer, Date, Float, ForeignKey, UniqueConstraint, DateTime, func
+from sqlalchemy import Boolean, String, Integer, Date, Float, ForeignKey, UniqueConstraint, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
@@ -77,3 +77,63 @@ class SeleccionSeguimiento(Base):
     cuota_decimal: Mapped[float] = mapped_column(Float)
     casa: Mapped[str] = mapped_column(String(80))
     seleccionada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    version_modelo: Mapped[str | None] = mapped_column(String(30))
+    publicado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    monto: Mapped[float] = mapped_column(Float, default=100.0)
+    estado_registro: Mapped[str] = mapped_column(String(12), default="simulada", index=True)
+
+
+class ParlaySimulado(Base):
+    __tablename__ = "parlays_simulados"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    origen: Mapped[str] = mapped_column(String(12))  # modelo o personal
+    casa: Mapped[str] = mapped_column(String(80))
+    probabilidad: Mapped[float] = mapped_column(Float)
+    cuota_decimal: Mapped[float] = mapped_column(Float)
+    monto: Mapped[float] = mapped_column(Float)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    estado_registro: Mapped[str] = mapped_column(String(12), default="simulada", index=True)
+
+
+class PiernaParlay(Base):
+    __tablename__ = "piernas_parlay"
+    __table_args__ = (UniqueConstraint("parlay_id", "partido_id", name="uq_pierna_parlay_partido"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parlay_id: Mapped[int] = mapped_column(ForeignKey("parlays_simulados.id"), index=True)
+    partido_id: Mapped[int] = mapped_column(ForeignKey("partidos.id"))
+    pronostico_id: Mapped[int] = mapped_column(ForeignKey("pronosticos.id"))
+    lado: Mapped[str] = mapped_column(String(10))
+    probabilidad: Mapped[float] = mapped_column(Float)
+    cuota_decimal: Mapped[float] = mapped_column(Float)
+    version_modelo: Mapped[str | None] = mapped_column(String(30))
+    publicado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EstrategiaSimulacion(Base):
+    __tablename__ = "estrategias_simulacion"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(80), unique=True)
+    liga: Mapped[str | None] = mapped_column(String(10))
+    casa: Mapped[str | None] = mapped_column(String(80))
+    min_probabilidad: Mapped[float] = mapped_column(Float, default=0.0)
+    min_valor: Mapped[float] = mapped_column(Float, default=-1.0)
+    cuota_min: Mapped[float | None] = mapped_column(Float)
+    cuota_max: Mapped[float | None] = mapped_column(Float)
+    monto: Mapped[float] = mapped_column(Float, default=100.0)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConfiguracionExposicion(Base):
+    __tablename__ = "configuracion_exposicion"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    banca_inicial: Mapped[float] = mapped_column(Float, default=1000.0)
+    limite_partido: Mapped[float] = mapped_column(Float, default=0.10)
+    limite_equipo: Mapped[float] = mapped_column(Float, default=0.20)
+    bloquear_exceso: Mapped[bool] = mapped_column(Boolean, default=False)
+    actualizado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+    )

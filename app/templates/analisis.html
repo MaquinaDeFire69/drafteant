@@ -44,6 +44,7 @@
           <span class="font-semibold">{{ parlay.probabilidad|pct }} · paga x{{ '%.2f'|format(parlay.cuota) }}</span>
           <span class="text-right text-xs">{{ parlay.casa }} · valor esperado {{ '%+.1f'|format(parlay.valor_esperado * 100) }}%</span>
         </div>
+        <p class="mt-1 text-xs {% if parlay.diferencia_modelo_mercado > 0 %}text-green-700{% else %}text-red-700{% endif %}">Modelo {{ parlay.probabilidad|pct }} · mercado {{ parlay.probabilidad_mercado|pct }} · diferencia {{ '%+.1f'|format(parlay.diferencia_modelo_mercado * 100) }} pp</p>
         <ol class="mt-1 list-decimal pl-5 text-slate-700">
           {% for m in parlay.selecciones %}
           <li><a href="/partido/{{ m.id }}" class="hover:text-blue-700">{{ m.seleccion }} gana: {{ m.local }} vs {{ m.visitante }}</a> <span class="text-xs text-slate-500">({{ m.probabilidad|pct }} · {{ m.fecha|fecha_es }} {{ m.inicio_utc|hora_mexico }} h)</span></li>

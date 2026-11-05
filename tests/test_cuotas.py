@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.models import Cuota, Equipo, Partido, Pronostico, SeleccionSeguimiento
 from app.services.cuotas import ODDS_DEPORTES, _equipo, capturar_premier
-from app.services.seguimiento import rendimiento_selecciones
+from app.services.seguimiento import curva_banca, rendimiento_selecciones
 
 
 class Respuesta:
@@ -24,6 +24,17 @@ class Respuesta:
 
 
 class CuotasTest(unittest.TestCase):
+    def test_curva_banca_acumula_y_mide_drawdown(self):
+        curva = curva_banca([
+            {"fecha": "2026-01-01", "terminada": True, "monto": 100, "cuota": 2.0, "ganada": True},
+            {"fecha": "2026-01-02", "terminada": True, "monto": 100, "cuota": 2.0, "ganada": False},
+            {"fecha": "2026-01-03", "terminada": False, "monto": 100, "cuota": 2.0, "ganada": None},
+        ], banca_inicial=1000)
+        self.assertEqual(len(curva["puntos"]), 2)
+        self.assertEqual(curva["puntos"][0]["banca"], 1100)
+        self.assertEqual(curva["puntos"][1]["banca"], 1000)
+        self.assertEqual(curva["peor_drawdown"], -100)
+
     def test_ligas_configuradas_tienen_un_deporte_de_cuotas(self):
         self.assertEqual(set(ODDS_DEPORTES), {"E0", "SP1", "I1", "D1", "F1", "N1", "P1"})
 
@@ -101,6 +112,13 @@ class CuotasTest(unittest.TestCase):
             self.assertEqual(seguimiento[0].lado, "local")
             self.assertEqual(seguimiento[0].cuota_decimal, 1.8)
             partido = db.get(Partido, seguimiento[0].partido_id)
+            db.add(Cuota(
+                partido_id=partido.id, pronostico_id=seguimiento[0].pronostico_id,
+                evento_api_id="correcto", casa="casa_prueba",
+                cuota_local=1.6, cuota_empate=3.6, cuota_visitante=5.0,
+                actualizada_en=actualizada + timedelta(minutes=1),
+                capturada_en=actualizada + timedelta(minutes=1),
+            ))
             partido.goles_local, partido.goles_visitante, partido.estado = 2, 0, "FINISHED"
             db.commit()
         with sesiones() as db:
@@ -108,6 +126,11 @@ class CuotasTest(unittest.TestCase):
             self.assertEqual((rendimiento["evaluadas"], rendimiento["aciertos"]), (1, 1))
             self.assertEqual(rendimiento["inversion"], 100.0)
             self.assertEqual(rendimiento["ganancia"], 80.0)
+            self.assertAlmostEqual(rendimiento["filas"][0]["probabilidad_mercado"], 1 / 1.8)
+            self.assertAlmostEqual(rendimiento["filas"][0]["diferencia_modelo_mercado"], 0.6 - (1 / 1.8))
+            self.assertAlmostEqual(rendimiento["filas"][0]["cuota_cierre"], 1.6)
+            self.assertAlmostEqual(rendimiento["filas"][0]["clv"], 1.8 / 1.6 - 1)
+            self.assertEqual(rendimiento["clv"]["con_multiples_capturas"], 1)
             self.assertEqual(rendimiento_selecciones(db, liga="E0", casa="casa_prueba")["total"], 1)
             self.assertEqual(rendimiento_selecciones(db, min_probabilidad=0.7)["total"], 0)
             self.assertEqual(rendimiento_selecciones(db, min_valor=0.05)["total"], 1)
