@@ -8,7 +8,7 @@
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
-  <header class="bg-white border-b">
+  <header class="sticky top-0 z-50 border-b bg-white/95 shadow-sm backdrop-blur">
     <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
       <a href="/" class="font-bold text-lg">⚽ Pronósticos</a>
       <nav class="flex gap-4 text-sm">
@@ -20,7 +20,7 @@
     </div>
   </header>
 
-  <main class="max-w-3xl w-full mx-auto px-4 py-6 flex-1">
+  <main class="{% block clase_main %}max-w-3xl{% endblock %} w-full mx-auto px-4 py-6 flex-1">
     {% block contenido %}{% endblock %}
   </main>
 
