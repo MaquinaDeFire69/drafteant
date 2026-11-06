@@ -16,7 +16,7 @@ El proyecto registra predicciones y cuotas para comparar lo estimado con los res
 | Modelado y análisis | NumPy, pandas, SciPy, statsmodels y scikit-learn |
 | Resultados históricos | CSV de football-data.co.uk |
 | Calendario, horarios y estados | API de football-data.org |
-| Cuotas | The Odds API, mercado 1X2 (`h2h`), región `uk`, formato decimal |
+| Cuotas | The Odds API, 1X2 (`h2h`) y captura opcional por evento de más/menos 2.5 y ambos anotan; región `uk`, formato decimal |
 
 El modelo activo usa Poisson con corrección Dixon-Coles y ponderación temporal. Actualmente `app/services/cache.py` configura `xi = 0.004` para todas las ligas. El backtest también puede comparar una base histórica, Poisson y Elo.
 
@@ -38,7 +38,7 @@ La calibración compara probabilidades estimadas con frecuencias observadas. Log
 
 ### Análisis — `/analisis`
 
-Genera parlays de 2 a 5 partidos distintos con cuotas de una misma casa. Permite elegir liga, periodo y cantidad de selecciones; el valor inicial es 2. Se muestran hasta cinco combinaciones por categoría:
+Genera parlays de 2 a 5 partidos distintos con cuotas de una misma casa. Permite elegir liga, periodo, mercado y cantidad de selecciones; el valor inicial es 2. Los mercados son 1X2 (local, empate, visitante), más/menos de 2.5 goles, ambos anotan (sí/no) y mixto (la opción con mayor valor esperado por partido entre los mercados disponibles). Se muestran hasta cinco combinaciones por categoría:
 
 | Categoría de la interfaz | Probabilidad conjunta estimada |
 | --- | --- |
@@ -49,14 +49,16 @@ Genera parlays de 2 a 5 partidos distintos con cuotas de una misma casa. Permite
 
 Las combinaciones inferiores al 20 % se omiten. “Seguras” es una etiqueta de la interfaz, no una garantía. La probabilidad conjunta se calcula multiplicando probabilidades, bajo una aproximación de independencia.
 
-Para combinaciones de 4 o 5 selecciones se consideran las 16 candidatas con mayor probabilidad para limitar el coste de generación. Se muestra la cuota decimal, el valor esperado y la comparación entre modelo y probabilidad implícita del mercado.
+Las probabilidades de goles y ambos anotan se calculan con la matriz del modelo al generar cada pronóstico. Los pronósticos anteriores a la migración no tienen estos valores: genera pronósticos nuevos para ver estos mercados. Solo aparecen cuotas que el proveedor devolvió para la casa consultada; una ausencia de cuotas no se rellena con datos inventados. En modo mixto se elige una opción por partido y no se repite ningún encuentro en la combinación.
+
+Para limitar el coste de generación se consideran hasta 16 selecciones con mayor probabilidad y 16 con mejor valor esperado. Si el parlay tiene 4 o 5 selecciones, el conjunto se reduce a 8 de cada grupo. Esto es una búsqueda parcial, no una revisión exhaustiva de todas las combinaciones. Se muestra la cuota decimal, el valor esperado y la comparación entre modelo y probabilidad implícita del mercado.
 
 ### Simulación — `/simulacion`
 
 Reúne herramientas para probar y seguir decisiones:
 
 - **Exposición:** banca de referencia, límites por partido/equipo y modo advertencia o bloqueo al crear parlays. El monto de un parlay cuenta completo en cada selección que lo integra.
-- **Parlays:** guardar propuestas del modelo o crear combinaciones personales de 2 a 5 partidos de una misma casa.
+- **Parlays:** guardar propuestas dobles del modelo o crear combinaciones personales de 2 a 5 partidos de una misma casa, eligiendo mercado y resultado para cada partido.
 - **Individuales:** revisar selecciones automáticas y filtrar por liga, casa, probabilidad, valor esperado y rango de cuotas. Por defecto simulan 100 unidades por selección.
 - **Estrategias guardadas:** conservar reglas y un monto para evaluar el historial y nuevas selecciones que cumplan los filtros.
 - **Seguimiento:** marcar registros como `Simulada`, `Apostada` o `Descartada`; los descartados quedan fuera de las métricas de rendimiento.
@@ -261,7 +263,7 @@ python -c "from app.services.pronosticar import generar; generar('SP1')"
 
 El primer comando genera únicamente para `E0`: ese módulo no interpreta argumentos de liga. Para otras ligas usa la llamada explícita o `python -m app.tareas SP1` si quieres hacer la actualización completa.
 
-Entrena a partir del histórico local y añade pronósticos; no reemplaza los anteriores. Equipos sin historial suficiente pueden omitirse. Después de generar nuevas versiones, captura cuotas para que puedan asociarse a los pronósticos usados en Análisis.
+Entrena a partir del histórico local y añade pronósticos; no reemplaza los anteriores. Equipos sin historial suficiente pueden omitirse. Los pronósticos nuevos también guardan probabilidades de más/menos 2.5 goles y ambos anotan. Después, captura cuotas para poder usarlos en Análisis.
 
 ### Capturar cuotas y empezar a recopilar CLV
 
@@ -276,11 +278,19 @@ Sin argumentos consulta solo `E0`; `TODAS` consulta las siete ligas. Requiere `O
 
 Para medir CLV, repite la captura antes del inicio: una captura inicial y otra más cercana al partido permiten observar cambios. El código conserva cambios de cuota y evita duplicar el mismo evento/casa/fecha de actualización. No hay un programador automático de capturas: debes ejecutar estos comandos o programarlos por separado. Abrir las vistas no consume créditos de The Odds API. Consulta el saldo informado por cada captura antes de repetir procesos masivos.
 
+Para traer cuotas de más/menos 2.5 goles y ambos anotan de los próximos partidos de una liga, primero ejecuta la captura 1X2 anterior y luego:
+
+```powershell
+python -m app.services.mercados E0 --limite 3
+```
+
+Consulta hasta tres eventos próximos ya cruzados con la BD; `--limite` acepta de 1 a 20. El endpoint por evento pide `totals`, `alternate_totals` y `btts`, guarda solo la línea exacta de 2.5 para goles y muestra los créditos usados/restantes. Puede gastar hasta tres créditos por evento con región `uk`, según los mercados que devuelva la API. Ejecutarlo otra vez solo guarda actualizaciones nuevas, pero la consulta vuelve a consumir créditos. La disponibilidad cambia según casa, liga y fecha. Si la respuesta no incluye esos mercados, Análisis no mostrará esa opción.
+
 ## Rutina de uso sugerida
 
 1. Inicia PostgreSQL y activa `.venv`.
 2. Ejecuta `python -m app.tareas E0` (o las ligas que vas a revisar).
-3. Ejecuta `python -m app.services.cuotas E0` después de generar pronósticos.
+3. Ejecuta `python -m app.services.cuotas E0` después de generar pronósticos. Si quieres mercados de goles y ambos anotan, añade `python -m app.services.mercados E0 --limite 3`.
 4. Inicia Uvicorn y abre Próximos, Análisis o Simulación.
 5. Guarda las combinaciones que quieras seguir y configura exposición.
 6. Antes de los partidos, repite la captura si necesitas datos más cercanos al cierre.
@@ -404,7 +414,8 @@ app/
     modelo.py             Modelos predictivos
     cache.py              Configuración y caché del modelo activo
     pronosticar.py         Generación de pronósticos persistentes
-    cuotas.py             Captura de cuotas externas
+    cuotas.py             Captura de cuotas 1X2
+    mercados.py           Captura limitada de cuotas de goles y ambos anotan
     consultas.py          Consultas, precisión y generación de parlays
     seguimiento.py        Simulación, estrategias, exposición y CLV
   templates/              Vistas Jinja2

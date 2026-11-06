@@ -37,6 +37,8 @@ class Pronostico(Base):
     prob_visitante: Mapped[float] = mapped_column(Float)
     goles_esperados_local: Mapped[float | None] = mapped_column(Float)
     goles_esperados_visitante: Mapped[float | None] = mapped_column(Float)
+    prob_mas_2_5: Mapped[float | None] = mapped_column(Float)
+    prob_ambos_anotan: Mapped[float | None] = mapped_column(Float)
     version_modelo: Mapped[str] = mapped_column(String(30))
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     # Una predicción es un registro histórico: nunca se reemplaza por una posterior.
@@ -57,6 +59,25 @@ class Cuota(Base):
     cuota_local: Mapped[float] = mapped_column(Float)
     cuota_empate: Mapped[float] = mapped_column(Float)
     cuota_visitante: Mapped[float] = mapped_column(Float)
+    actualizada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    capturada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class CuotaMercado(Base):
+    __tablename__ = "cuotas_mercado"
+    __table_args__ = (
+        UniqueConstraint("evento_api_id", "casa", "mercado", "opcion", "linea", "actualizada_en",
+                         name="uq_cuota_mercado_actualizacion"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    partido_id: Mapped[int] = mapped_column(ForeignKey("partidos.id"), index=True)
+    evento_api_id: Mapped[str] = mapped_column(String(80))
+    casa: Mapped[str] = mapped_column(String(80))
+    mercado: Mapped[str] = mapped_column(String(20))
+    opcion: Mapped[str] = mapped_column(String(10))
+    linea: Mapped[float] = mapped_column(Float, default=0.0)
+    cuota_decimal: Mapped[float] = mapped_column(Float)
     actualizada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     capturada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
@@ -105,6 +126,7 @@ class PiernaParlay(Base):
     partido_id: Mapped[int] = mapped_column(ForeignKey("partidos.id"))
     pronostico_id: Mapped[int] = mapped_column(ForeignKey("pronosticos.id"))
     lado: Mapped[str] = mapped_column(String(10))
+    mercado: Mapped[str] = mapped_column(String(20), default="h2h")
     probabilidad: Mapped[float] = mapped_column(Float)
     cuota_decimal: Mapped[float] = mapped_column(Float)
     version_modelo: Mapped[str | None] = mapped_column(String(30))

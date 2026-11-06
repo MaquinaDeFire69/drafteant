@@ -2,12 +2,12 @@
 {% block titulo %}Análisis de partidos{% endblock %}
 {% block contenido %}
 <h1 class="mb-2 text-xl font-bold">Análisis</h1>
-<p class="mb-4 text-sm text-slate-500">Combinaciones de 2 a 5 partidos futuros según las probabilidades del modelo y cuotas capturadas.</p>
+<p class="mb-4 text-sm text-slate-500">Combina de 2 a 5 partidos con cuotas capturadas. Goles y ambos anotan requieren una captura adicional; cada partido aparece una sola vez por parlay.</p>
 
 <div class="mb-4 flex flex-wrap gap-2 text-sm">
-  <a href="/analisis?dias={{ dias }}&cantidad={{ cantidad }}" class="rounded-full border px-3 py-1 {% if not liga %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">Todas</a>
+  <a href="/analisis?dias={{ dias }}&cantidad={{ cantidad }}&mercado={{ mercado }}" class="rounded-full border px-3 py-1 {% if not liga %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">Todas</a>
   {% for codigo, l in ligas.items() %}
-  <a href="/analisis?liga={{ codigo }}&dias={{ dias }}&cantidad={{ cantidad }}" class="rounded-full border px-3 py-1 {% if liga == codigo %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">{{ l.nombre }}</a>
+  <a href="/analisis?liga={{ codigo }}&dias={{ dias }}&cantidad={{ cantidad }}&mercado={{ mercado }}" class="rounded-full border px-3 py-1 {% if liga == codigo %}bg-slate-800 text-white{% else %}bg-white hover:bg-slate-100{% endif %}">{{ l.nombre }}</a>
   {% endfor %}
 </div>
 
@@ -19,6 +19,13 @@
     </div>
     <form method="get" class="flex items-end gap-2 text-sm">
       <input type="hidden" name="liga" value="{{ liga }}">
+      <label class="grid gap-1"><span class="text-xs text-slate-500">Mercado</span>
+        <select name="mercado" class="rounded border px-2 py-1.5">
+          {% for clave, etiqueta in [('h2h', 'Ganador 1X2'), ('total_25', 'Más/menos 2.5 goles'), ('btts', 'Ambos anotan Sí/No'), ('mixto', 'Mixto: mejor opción por partido')] %}
+          <option value="{{ clave }}" {% if mercado == clave %}selected{% endif %}>{{ etiqueta }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <label class="grid gap-1"><span class="text-xs text-slate-500">Próximos</span>
         <select name="dias" class="rounded border px-2 py-1.5">
           {% for d in [7, 14, 30] %}<option value="{{ d }}" {% if dias == d %}selected{% endif %}>{{ d }} días</option>{% endfor %}
@@ -52,7 +59,7 @@
         <p class="mt-1 text-xs {% if parlay.diferencia_modelo_mercado > 0 %}text-green-700{% else %}text-red-700{% endif %}">Modelo {{ parlay.probabilidad|pct }} · mercado {{ parlay.probabilidad_mercado|pct }} · diferencia {{ '%+.1f'|format(parlay.diferencia_modelo_mercado * 100) }} pp</p>
         <ol class="mt-1 list-decimal pl-5 text-slate-700">
           {% for m in parlay.selecciones %}
-          <li><a href="/partido/{{ m.id }}" class="hover:text-blue-700">{{ m.seleccion }} gana: {{ m.local }} vs {{ m.visitante }}</a> <span class="text-xs text-slate-500">({{ m.probabilidad|pct }} · {{ m.fecha|fecha_es }} {{ m.inicio_utc|hora_mexico }} h)</span></li>
+          <li><a href="/partido/{{ m.id }}" class="hover:text-blue-700">{{ m.seleccion }}: {{ m.local }} vs {{ m.visitante }}</a> <span class="text-xs text-slate-500">({{ m.probabilidad|pct }} · {{ m.fecha|fecha_es }} {{ m.inicio_utc|hora_mexico }} h)</span></li>
           {% endfor %}
         </ol>
       </div>

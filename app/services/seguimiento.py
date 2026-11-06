@@ -12,7 +12,7 @@ from app.models import (
     PiernaParlay, Pronostico,
     SeleccionSeguimiento,
 )
-from app.services.consultas import agregar_cuotas, parlays, proximos_partidos, selecciones_destacadas
+from app.services.consultas import agregar_cuotas, limitar_candidatas, parlays, proximos_partidos, selecciones_destacadas, selecciones_1x2, selecciones_mercados
 
 
 UNIDAD = 100.0
@@ -97,8 +97,12 @@ def exposicion_activa(db: Session) -> dict:
     ).all()
     for pierna, parlay, partido, local, visita in piernas:
         _agregar_exposicion(por_partido, partido.id, f"{local} vs {visita}", parlay.monto)
-        equipo_id, equipo = (partido.local_id, local) if pierna.lado == "local" else (partido.visitante_id, visita)
-        _agregar_exposicion(por_equipo, equipo_id, equipo, parlay.monto)
+        if pierna.mercado != "h2h" or pierna.lado == "empate":
+            _agregar_exposicion(por_equipo, partido.local_id, local, parlay.monto)
+            _agregar_exposicion(por_equipo, partido.visitante_id, visita, parlay.monto)
+        else:
+            equipo_id, equipo = (partido.local_id, local) if pierna.lado == "local" else (partido.visitante_id, visita)
+            _agregar_exposicion(por_equipo, equipo_id, equipo, parlay.monto)
 
     def preparar(grupos: dict[int, dict], limite: float) -> list[dict]:
         maximo = limites["banca_inicial"] * limite
@@ -115,14 +119,16 @@ def exposicion_activa(db: Session) -> dict:
     }
 
 
-def validar_exposicion_parlay(db: Session, partido_ids: list[int], monto: float | str | None) -> list[str]:
+def validar_exposicion_parlay(db: Session, partido_ids: list[int], monto: float | str | None,
+                              elecciones: list[tuple[int, str, str]] | None = None) -> list[str]:
     """Devuelve avisos para un parlay nuevo sin alterar la exposición guardada."""
     monto = _monto(monto)
     actual = exposicion_activa(db)
     limites = actual["configuracion"]
     por_partido = {fila["id"]: fila["monto"] for fila in actual["partidos"]}
     por_equipo = {fila["id"]: fila["monto"] for fila in actual["equipos"]}
-    candidatas = {fila["id"]: fila for fila in candidatas_parlay(db)}
+    candidatas = {fila["id"]: fila for fila in candidatas_parlay(db, mercado="h2h")}
+    por_eleccion = {item[0]: item for item in elecciones or []}
     avisos = []
     for partido_id in set(partido_ids):
         candidata = candidatas.get(partido_id)
@@ -132,10 +138,15 @@ def validar_exposicion_parlay(db: Session, partido_ids: list[int], monto: float 
         total_partido = por_partido.get(partido_id, 0.0) + monto
         if total_partido > limites["banca_inicial"] * limites["limite_partido"]:
             avisos.append(f"{candidata['local']} vs {candidata['visitante']} supera el límite por partido")
-        equipo_id = partido.local_id if candidata["lado"] == "local" else partido.visitante_id
-        total_equipo = por_equipo.get(equipo_id, 0.0) + monto
-        if total_equipo > limites["banca_inicial"] * limites["limite_equipo"]:
-            avisos.append(f"{candidata['seleccion']} supera el límite por equipo")
+        _, mercado, lado = por_eleccion.get(partido_id, (partido_id, "h2h", candidata["lado"]))
+        equipos = [partido.local_id] if mercado == "h2h" and lado == "local" else (
+            [partido.visitante_id] if mercado == "h2h" and lado == "visitante" else
+            [partido.local_id, partido.visitante_id]
+        )
+        for equipo_id in equipos:
+            total_equipo = por_equipo.get(equipo_id, 0.0) + monto
+            if total_equipo > limites["banca_inicial"] * limites["limite_equipo"]:
+                avisos.append(f"El equipo del partido {partido_id} supera el límite por equipo")
     return avisos
 
 
@@ -423,19 +434,36 @@ def crear_estrategia(db: Session, nombre: str, liga: str | None, casa: str | Non
     return estrategia
 
 
-def candidatas_parlay(db: Session, dias: int = 30) -> list[dict]:
+def candidatas_parlay(db: Session, dias: int = 30, mercado: str = "h2h") -> list[dict]:
     """Selecciones futuras que tienen cuotas reales por casa."""
     partidos = proximos_partidos(db, dias=dias)
-    return agregar_cuotas(db, selecciones_destacadas(partidos, limite=len(partidos)))
+    ganadores = selecciones_1x2(db, partidos)
+    if mercado == "h2h":
+        return ganadores
+    adicionales = []
+    for tipo in ("total_25", "btts"):
+        if mercado in (tipo, "mixto"):
+            adicionales.extend(selecciones_mercados(db, partidos, tipo))
+    if mercado != "mixto":
+        return adicionales
+    por_partido = {}
+    for seleccion in ganadores + adicionales:
+        if seleccion.get("cuotas_por_casa"):
+            actual = por_partido.get(seleccion["id"])
+            if actual is None or seleccion.get("valor_esperado", -1) > actual.get("valor_esperado", -1):
+                por_partido[seleccion["id"]] = seleccion
+    return list(por_partido.values())
 
 
 def parlays_modelo_disponibles(db: Session) -> list[dict]:
     """Parlays sugeridos en Análisis, aplanados para poder fijarlos en Simulación."""
     disponibles = []
-    for grupo, lista in parlays(candidatas_parlay(db)).items():
-        for parlay in lista:
-            ids = ",".join(str(s["id"]) for s in parlay["selecciones"])
-            disponibles.append({**parlay, "grupo": grupo, "clave": f"{parlay['casa']}|{ids}"})
+    for mercado in ("h2h", "total_25", "btts", "mixto"):
+        for grupo, lista in parlays(limitar_candidatas(candidatas_parlay(db, mercado=mercado)), cantidad=2).items():
+            for parlay in lista:
+                ids = ",".join(f"{s['id']}:{s['mercado']}:{s['lado']}" for s in parlay["selecciones"])
+                disponibles.append({**parlay, "grupo": grupo,
+                                    "clave": f"{mercado}|{parlay['casa']}|{ids}"})
     return disponibles
 
 
@@ -453,16 +481,31 @@ def crear_parlay_simulado(
     casa: str,
     partido_ids: list[int],
     monto: float | str | None = UNIDAD,
+    elecciones: list[tuple[int, str, str]] | None = None,
 ) -> ParlaySimulado:
-    """Fija un parlay de 2 a 4 partidos con cuotas de una sola casa."""
+    """Fija un parlay de 2 a 5 partidos con cuotas de una sola casa."""
     if origen not in {"modelo", "personal"}:
         raise ValueError("Origen de parlay inválido")
     ids = list(dict.fromkeys(partido_ids))
     if not 2 <= len(ids) <= 5:
         raise ValueError("El parlay debe tener entre 2 y 5 partidos distintos")
-    por_id = {s["id"]: s for s in candidatas_parlay(db)}
+    if elecciones is None:
+        elecciones = [(identificador, "h2h", "") for identificador in ids]
+    if [e[0] for e in elecciones] != ids:
+        raise ValueError("Las selecciones no corresponden a los partidos indicados")
+    candidatos = []
+    for mercado in {e[1] for e in elecciones}:
+        candidatos.extend(candidatas_parlay(db, mercado=mercado))
+    por_clave = {(s["id"], s["mercado"], s["lado"]): s for s in candidatos}
+    por_id = {}
+    for candidata in candidatos:
+        if candidata["mercado"] == "h2h" and (candidata["id"] not in por_id or
+                                               candidata["probabilidad"] > por_id[candidata["id"]]["probabilidad"]):
+            por_id[candidata["id"]] = candidata
     try:
-        selecciones = [por_id[identificador] for identificador in ids]
+        selecciones = [por_id[identificador] if mercado == "h2h" and not lado
+                       else por_clave[(identificador, mercado, lado)]
+                       for identificador, mercado, lado in elecciones]
         cuotas = [s["cuotas_por_casa"][casa]["cuota"] for s in selecciones]
     except KeyError:
         raise ValueError("Una selección ya no tiene cuota válida en esa casa") from None
@@ -480,11 +523,31 @@ def crear_parlay_simulado(
         db.add(PiernaParlay(
             parlay_id=parlay.id, partido_id=seleccion["id"],
             pronostico_id=seleccion["pron"].id, lado=seleccion["lado"],
+            mercado=seleccion["mercado"],
             probabilidad=seleccion["probabilidad"], cuota_decimal=cuota,
             version_modelo=seleccion["pron"].version_modelo,
             publicado_en=seleccion["pron"].publicado_en,
         ))
     return parlay
+
+
+def acerto_pierna(mercado: str, lado: str, goles_local: int, goles_visitante: int) -> bool:
+    if mercado == "total_25":
+        return (goles_local + goles_visitante >= 3) == (lado == "mas")
+    if mercado == "btts":
+        return (goles_local > 0 and goles_visitante > 0) == (lado == "si")
+    resultado = "local" if goles_local > goles_visitante else (
+        "visitante" if goles_visitante > goles_local else "empate"
+    )
+    return lado == resultado
+
+
+def etiqueta_pierna(mercado: str, lado: str, local: str, visitante: str) -> str:
+    if mercado == "total_25":
+        return "Más de 2.5 goles" if lado == "mas" else "Menos de 2.5 goles"
+    if mercado == "btts":
+        return "Ambos anotan: Sí" if lado == "si" else "Ambos anotan: No"
+    return local if lado == "local" else (visitante if lado == "visitante" else "Empate")
 
 
 def rendimiento_parlays(db: Session, limite: int = 30) -> dict:
@@ -513,18 +576,16 @@ def rendimiento_parlays(db: Session, limite: int = 30) -> dict:
         detalle, perdida, todas_terminadas = [], False, True
         for pierna, partido, nombre_local, nombre_visita in piernas:
             terminada = partido.goles_local is not None and partido.goles_visitante is not None
-            resultado = None
             if terminada:
-                resultado = "local" if partido.goles_local > partido.goles_visitante else (
-                    "visitante" if partido.goles_visitante > partido.goles_local else "empate"
-                )
-                perdida |= resultado != pierna.lado
+                ganada_pierna = acerto_pierna(pierna.mercado, pierna.lado,
+                                             partido.goles_local, partido.goles_visitante)
+                perdida |= not ganada_pierna
             else:
                 todas_terminadas = False
             detalle.append({
                 "partido_id": partido.id, "local": nombre_local, "visitante": nombre_visita,
-                "seleccion": nombre_local if pierna.lado == "local" else nombre_visita,
-                "terminada": terminada, "ganada": resultado == pierna.lado if terminada else None,
+                "seleccion": etiqueta_pierna(pierna.mercado, pierna.lado, nombre_local, nombre_visita),
+                "terminada": terminada, "ganada": ganada_pierna if terminada else None,
             })
         estado = "Perdido" if perdida else ("Ganado" if todas_terminadas else "Pendiente")
         ganancia = None

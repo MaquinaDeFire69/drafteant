@@ -15,8 +15,8 @@ from app.ligas import LIGAS, nombre_liga
 from app.models import Equipo, ParlaySimulado, Partido, Pronostico, SeleccionSeguimiento
 from app.services.cache import modelo_para
 from app.services.consultas import (
-    agregar_cuotas, forma, parlays, precision, proximos_partidos, selecciones_destacadas,
-    versiones_pronostico,
+    agregar_cuotas, forma, limitar_candidatas, parlays, precision, proximos_partidos, selecciones_destacadas,
+    selecciones_1x2, selecciones_mercados, versiones_pronostico,
 )
 from app.services.seguimiento import (
     candidatas_parlay, casas_disponibles, configuracion_exposicion, crear_parlay_simulado, curva_banca,
@@ -141,17 +141,35 @@ def pagina_analisis(
     liga: str = "",
     dias: int = 14,
     cantidad: int = 2,
+    mercado: str = "h2h",
     db: Session = Depends(get_db),
 ):
     liga, dias = _liga(liga), min(max(dias, 1), 30)
     cantidad = min(max(cantidad, 2), 5)
+    mercado = mercado if mercado in {"h2h", "total_25", "btts", "mixto"} else "h2h"
     proximos = proximos_partidos(db, liga or None, dias)
     # El top 10 sirve para explorar, pero los parlays deben considerar todos
     # los próximos partidos con cuota, incluso si una liga sin cuotas ocupa el top.
-    destacados = agregar_cuotas(db, selecciones_destacadas(proximos, limite=len(proximos)))
+    destacados = selecciones_1x2(db, proximos)
+    if mercado == "h2h":
+        candidatas = destacados
+    else:
+        adicionales = (selecciones_mercados(db, proximos, "total_25") if mercado in {"total_25", "mixto"} else [])
+        adicionales += (selecciones_mercados(db, proximos, "btts") if mercado in {"btts", "mixto"} else [])
+        if mercado == "mixto":
+            por_partido = {}
+            for seleccion in destacados + adicionales:
+                if seleccion.get("cuotas_por_casa"):
+                    actual = por_partido.get(seleccion["id"])
+                    if actual is None or seleccion.get("valor_esperado", -1) > actual.get("valor_esperado", -1):
+                        por_partido[seleccion["id"]] = seleccion
+            candidatas = list(por_partido.values())
+        else:
+            candidatas = adicionales
+    candidatas = limitar_candidatas(candidatas)
     return templates.TemplateResponse(request, "analisis.html", {
-        "parlays": parlays(destacados, cantidad=cantidad),
-        "liga": liga, "ligas": LIGAS, "dias": dias, "cantidad": cantidad,
+        "parlays": parlays(candidatas, cantidad=cantidad),
+        "liga": liga, "ligas": LIGAS, "dias": dias, "cantidad": cantidad, "mercado": mercado,
     })
 
 
@@ -191,7 +209,9 @@ def pagina_simulacion(
                 monto=estrategia.monto,
             ),
         })
-    candidatas = candidatas_parlay(db)
+    candidatas = (candidatas_parlay(db, mercado="h2h") +
+                  candidatas_parlay(db, mercado="total_25") +
+                  candidatas_parlay(db, mercado="btts"))
     casas_parlay = sorted({casa for s in candidatas for casa in s.get("cuotas_por_casa", {})})
     casa_parlay = casa_parlay if casa_parlay in casas_parlay else (casas_parlay[0] if casas_parlay else "")
     seleccionables = [s for s in candidatas if casa_parlay in s.get("cuotas_por_casa", {})]
@@ -230,12 +250,16 @@ async def guardar_parlay_modelo(request: Request, db: Session = Depends(get_db))
     clave = datos.get("clave", [""])[0]
     try:
         candidato = next(p for p in parlays_modelo_disponibles(db) if p["clave"] == clave)
-        avisos = validar_exposicion_parlay(db, [s["id"] for s in candidato["selecciones"]], datos.get("monto", ["100"])[0])
+        avisos = validar_exposicion_parlay(
+            db, [s["id"] for s in candidato["selecciones"]], datos.get("monto", ["100"])[0],
+            [(s["id"], s["mercado"], s["lado"]) for s in candidato["selecciones"]],
+        )
         if avisos and configuracion_exposicion(db)["bloquear_exceso"]:
             raise ValueError("No se guardó: " + "; ".join(avisos))
         crear_parlay_simulado(
             db, "modelo", candidato["casa"],
             [s["id"] for s in candidato["selecciones"]], datos.get("monto", ["100"])[0],
+            elecciones=[(s["id"], s["mercado"], s["lado"]) for s in candidato["selecciones"]],
         )
         db.commit()
     except (StopIteration, ValueError) as exc:
@@ -312,13 +336,18 @@ async def cambiar_estado_parlay(parlay_id: int, request: Request, db: Session = 
 async def guardar_parlay_personal(request: Request, db: Session = Depends(get_db)):
     datos = await _formulario(request)
     try:
-        ids = [int(identificador) for identificador in datos.get("partido_id", [])]
-        avisos = validar_exposicion_parlay(db, ids, datos.get("monto", ["100"])[0])
+        elecciones = []
+        for valor in datos.get("seleccion", []):
+            partido_id, mercado, lado = valor.split(":", 2)
+            elecciones.append((int(partido_id), mercado, lado))
+        ids = [item[0] for item in elecciones]
+        avisos = validar_exposicion_parlay(db, ids, datos.get("monto", ["100"])[0], elecciones)
         if avisos and configuracion_exposicion(db)["bloquear_exceso"]:
             raise ValueError("No se guardó: " + "; ".join(avisos))
         crear_parlay_simulado(
             db, "personal", datos.get("casa_parlay", [""])[0], ids,
             datos.get("monto", ["100"])[0],
+            elecciones=elecciones,
         )
         db.commit()
     except (TypeError, ValueError) as exc:

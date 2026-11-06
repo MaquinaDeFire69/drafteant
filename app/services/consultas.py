@@ -6,10 +6,14 @@ from sqlalchemy import inspect, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.ligas import nombre_liga
-from app.models import Cuota, Equipo, Partido, Pronostico
+from app.models import Cuota, CuotaMercado, Equipo, Partido, Pronostico
 
 RESULTADOS = ("local", "empate", "visitante")
 INTERVALOS_CALIBRACION = 10
+
+
+def _utc(valor: datetime) -> datetime:
+    return valor.replace(tzinfo=timezone.utc) if valor.tzinfo is None else valor.astimezone(timezone.utc)
 
 
 def proximos_partidos(db: Session, liga: str | None = None, dias: int = 14) -> list[dict]:
@@ -132,6 +136,110 @@ def agregar_cuotas(db: Session, selecciones: list[dict]) -> list[dict]:
     return selecciones
 
 
+def selecciones_1x2(db: Session, partidos: list[dict]) -> list[dict]:
+    """Tres resultados 1X2 por partido, sujetos a cuotas reales disponibles."""
+    if not partidos or not inspect(db.get_bind()).has_table("cuotas"):
+        return []
+    ahora = datetime.now(timezone.utc)
+    ultimas = {}
+    for cuota in db.scalars(
+        select(Cuota).where(Cuota.partido_id.in_([p["id"] for p in partidos]))
+        .order_by(Cuota.capturada_en, Cuota.id)
+    ):
+        ultimas[(cuota.partido_id, cuota.casa)] = cuota
+    salida = []
+    for partido in partidos:
+        pron, inicio = partido["pron"], partido["inicio_utc"]
+        if not pron or not inicio or _utc(inicio) <= ahora or not pron.publicado_en:
+            continue
+        if _utc(pron.publicado_en) >= _utc(inicio) or _utc(pron.publicado_en) > ahora:
+            continue
+        for lado, campo_prob, campo_cuota, etiqueta in (
+            ("local", "prob_local", "cuota_local", partido["local"] + " gana"),
+            ("empate", "prob_empate", "cuota_empate", "Empate"),
+            ("visitante", "prob_visitante", "cuota_visitante", partido["visitante"] + " gana"),
+        ):
+            prob = getattr(pron, campo_prob)
+            if not math.isfinite(prob) or not 0 <= prob <= 1:
+                continue
+            por_casa = {}
+            for (partido_id, casa), cuota in ultimas.items():
+                if partido_id != partido["id"] or _utc(cuota.capturada_en) >= _utc(inicio):
+                    continue
+                precio = getattr(cuota, campo_cuota)
+                if precio and math.isfinite(precio) and precio > 1:
+                    por_casa[casa] = {"cuota": precio, "capturada_en": cuota.capturada_en}
+            if not por_casa:
+                continue
+            casa = max(por_casa, key=lambda c: por_casa[c]["cuota"])
+            salida.append({**partido, "mercado": "h2h", "lado": lado,
+                           "seleccion": etiqueta, "probabilidad": prob,
+                           "cuotas_por_casa": por_casa, "casa": casa,
+                           "cuota": por_casa[casa]["cuota"],
+                           "valor_esperado": prob * por_casa[casa]["cuota"] - 1})
+    return salida
+
+
+def selecciones_mercados(db: Session, partidos: list[dict], mercado: str) -> list[dict]:
+    """Construye selecciones de goles/BTTS con probabilidades publicadas antes del inicio."""
+    if mercado not in {"total_25", "btts"} or not partidos:
+        return []
+    if not inspect(db.get_bind()).has_table("cuotas_mercado"):
+        return []
+    ahora = datetime.now(timezone.utc)
+    ids = [p["id"] for p in partidos]
+    ultimas = {}
+    for cuota in db.scalars(
+        select(CuotaMercado).where(CuotaMercado.partido_id.in_(ids), CuotaMercado.mercado == mercado)
+        .order_by(CuotaMercado.capturada_en, CuotaMercado.id)
+    ):
+        ultimas[(cuota.partido_id, cuota.opcion, cuota.casa)] = cuota
+    salida = []
+    for partido in partidos:
+        pron = partido["pron"]
+        inicio = partido["inicio_utc"]
+        if not pron or not inicio or _utc(inicio) <= ahora or not pron.publicado_en:
+            continue
+        if _utc(pron.publicado_en) >= _utc(inicio) or _utc(pron.publicado_en) > ahora:
+            continue
+        base = pron.prob_mas_2_5 if mercado == "total_25" else pron.prob_ambos_anotan
+        if base is None or not math.isfinite(base) or not 0 <= base <= 1:
+            continue
+        opciones = ("mas", "menos") if mercado == "total_25" else ("si", "no")
+        for opcion in opciones:
+            prob = base if opcion in {"mas", "si"} else 1 - base
+            por_casa = {}
+            for (partido_id, cuota_opcion, casa), cuota in ultimas.items():
+                if partido_id != partido["id"] or cuota_opcion != opcion:
+                    continue
+                if _utc(cuota.capturada_en) >= _utc(inicio) or _utc(cuota.capturada_en) > ahora:
+                    continue
+                por_casa[casa] = {"cuota": cuota.cuota_decimal, "capturada_en": cuota.capturada_en,
+                                 "probabilidad_mercado": 1 / cuota.cuota_decimal,
+                                 "diferencia_modelo_mercado": prob - 1 / cuota.cuota_decimal}
+            if not por_casa:
+                continue
+            mejor_casa = max(por_casa, key=lambda casa: por_casa[casa]["cuota"])
+            etiqueta = ("Más de 2.5 goles" if opcion == "mas" else "Menos de 2.5 goles") \
+                if mercado == "total_25" else ("Ambos anotan: Sí" if opcion == "si" else "Ambos anotan: No")
+            salida.append({
+                **partido, "mercado": mercado, "lado": opcion, "seleccion": etiqueta,
+                "probabilidad": prob, "cuotas_por_casa": por_casa,
+                "casa": mejor_casa, "cuota": por_casa[mejor_casa]["cuota"],
+                "valor_esperado": prob * por_casa[mejor_casa]["cuota"] - 1,
+            })
+    return salida
+
+
+def limitar_candidatas(selecciones: list[dict], mitad: int = 16) -> list[dict]:
+    """Mantiene favoritas y opciones con mejor precio sin repetir la misma selección."""
+    disponibles = [s for s in selecciones if s.get("cuotas_por_casa")]
+    probables = sorted(disponibles, key=lambda s: -s["probabilidad"])[:mitad]
+    valor = sorted(disponibles, key=lambda s: -s.get("valor_esperado", -1))[:mitad]
+    unicas = {(s["id"], s.get("mercado", "h2h"), s.get("lado", "")): s for s in probables + valor}
+    return list(unicas.values())
+
+
 def parlays(
     selecciones: list[dict], limite_por_grupo: int = 5, cantidad: int = 2,
 ) -> dict[str, list[dict]]:
@@ -145,8 +253,10 @@ def parlays(
     candidatas = [s for s in selecciones if s.get("cuotas_por_casa")]
     # Evita que combinaciones de 4–5 partidos crezcan de forma explosiva.
     if cantidad >= 4:
-        candidatas = sorted(candidatas, key=lambda s: -s["probabilidad"])[:16]
+        candidatas = limitar_candidatas(candidatas, mitad=8)
     for combinacion in combinations(candidatas, cantidad):
+        if len({s["id"] for s in combinacion}) != cantidad:
+            continue
         casas_comunes = set.intersection(*(set(s["cuotas_por_casa"]) for s in combinacion))
         if not casas_comunes:
             continue

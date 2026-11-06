@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 
+import numpy as np
 from sqlalchemy import select
 
 from app.database import SessionLocal
@@ -32,6 +33,7 @@ def generar(liga: str = "E0") -> None:
             local, visita = nombres[p.local_id], nombres[p.visitante_id]
             try:
                 r = modelo.probabilidades(local, visita)
+                matriz = modelo.matriz(local, visita)
             except ValueError as e:
                 print(f"  [omitido] {local} vs {visita}: {e}")
                 continue
@@ -43,6 +45,8 @@ def generar(liga: str = "E0") -> None:
                 prob_visitante=r["prob_visitante"],
                 goles_esperados_local=r["goles_esperados_local"],
                 goles_esperados_visitante=r["goles_esperados_visitante"],
+                prob_mas_2_5=float(matriz[np.add.outer(np.arange(matriz.shape[0]), np.arange(matriz.shape[1])) >= 3].sum()),
+                prob_ambos_anotan=float(matriz[1:, 1:].sum()),
                 version_modelo=r["version_modelo"],
                 publicado_en=publicado_en,
             ))
