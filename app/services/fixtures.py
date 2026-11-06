@@ -3,7 +3,7 @@ import re
 import sys
 import time
 import unicodedata
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from app.ligas import LIGAS, temporada_actual
 from app.models import Equipo, Partido
 
 API = "https://api.football-data.org/v4/competitions/{comp}/matches"
+API_CUOTAS = "https://api.the-odds-api.com/v4/sports/{sport}/odds"
 PAUSA = 7  # segundos entre ligas (el plan gratuito permite 10 consultas por minuto)
 
 # Nombre que da la API -> nombre usado en los CSV.
@@ -64,6 +65,13 @@ ALIAS = {
     "Sporting Clube de Braga": "Sp Braga", "Vitória SC": "Guimaraes",
     "Vitória Guimarães": "Guimaraes", "GD Estoril Praia": "Estoril",
     "Estrela da Amadora": "Estrela", "AVS Futebol SAD": "AVS",
+    # México
+    "Pumas": "UNAM Pumas", "América": "Club America", "Club América": "Club America",
+    "Atlético San Luis": "Atl. San Luis", "FC Juárez": "Juarez", "Tigres": "Tigres UANL",
+    "León": "Club Leon", "Guadalajara": "Guadalajara Chivas",
+    # MLS
+    "LA Galaxy": "Los Angeles Galaxy", "Atlanta United FC": "Atlanta Utd",
+    "D.C. United": "DC United", "New York City FC": "New York City",
 }
 
 # Palabras que no ayudan a distinguir un club de otro
@@ -114,6 +122,10 @@ def emparejar(equipo_api: dict, conocidos: dict[str, int], por_norm: dict[str, s
 def sincronizar(liga: str, dias: int = 14) -> None:
     if not settings.football_data_api_key:
         raise RuntimeError("Falta FOOTBALL_DATA_API_KEY en el archivo .env")
+    if not LIGAS[liga].get("api"):
+        print(f"  {liga}: el plan actual no ofrece calendario en football-data.org para esta liga. "
+              "Importa su histórico y captura cuotas cuando esté disponible.")
+        return
 
     hoy = date.today()
     r = httpx.get(
@@ -202,6 +214,71 @@ def sincronizar(liga: str, dias: int = 14) -> None:
             print(f"  Sin coincidencia en {liga} (agrégalos a ALIAS):", sorted(sin_pareja))
 
 
+def sincronizar_desde_cuotas(liga: str, dias: int = 14) -> None:
+    """Crea/actualiza próximos partidos desde The Odds API para ligas sin calendario FD.
+
+    Es explícito porque la consulta de cuotas consume créditos. Solo incorpora
+    equipos que ya tienen historial en esa liga, para no crear predicciones sin base.
+    """
+    from app.services.cuotas import ODDS_DEPORTES
+
+    liga = liga.upper()
+    if liga not in ODDS_DEPORTES:
+        raise RuntimeError(f"La liga {liga} no está configurada para The Odds API")
+    if not settings.odds_api_key:
+        raise RuntimeError("Falta ODDS_API_KEY en el archivo .env")
+    ahora = datetime.now(timezone.utc)
+    try:
+        respuesta = httpx.get(
+            API_CUOTAS.format(sport=ODDS_DEPORTES[liga]),
+            params={"apiKey": settings.odds_api_key, "regions": "uk", "markets": "h2h",
+                    "oddsFormat": "decimal"}, timeout=30,
+        )
+    except httpx.HTTPError as error:
+        raise RuntimeError(f"No se pudo conectar con The Odds API: {error}") from None
+    if respuesta.status_code != 200:
+        raise RuntimeError(f"The Odds API respondió HTTP {respuesta.status_code}")
+
+    fecha_limite = (ahora + timedelta(days=dias)).date()
+    creados = actualizados = 0
+    sin_pareja = set()
+    with SessionLocal() as db:
+        ids = set(db.scalars(select(Partido.local_id).where(Partido.liga == liga)))
+        ids |= set(db.scalars(select(Partido.visitante_id).where(Partido.liga == liga)))
+        conocidos = {e.nombre: e.id for e in db.scalars(select(Equipo).where(Equipo.id.in_(ids)))}
+        por_norm = {_norm(nombre): nombre for nombre in conocidos}
+        for evento in respuesta.json():
+            try:
+                inicio = datetime.fromisoformat(evento["commence_time"].replace("Z", "+00:00"))
+                local = emparejar({"name": evento["home_team"], "shortName": evento["home_team"]}, conocidos, por_norm)
+                visita = emparejar({"name": evento["away_team"], "shortName": evento["away_team"]}, conocidos, por_norm)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if inicio <= ahora or inicio.date() > fecha_limite:
+                continue
+            if local is None or visita is None:
+                sin_pareja.add(f"{evento.get('home_team', '?')} vs {evento.get('away_team', '?')}")
+                continue
+            partido = db.scalar(select(Partido).where(
+                Partido.liga == liga, Partido.local_id == local, Partido.visitante_id == visita,
+                Partido.fecha == inicio.date(),
+            ))
+            if partido is None:
+                db.add(Partido(fecha=inicio.date(), inicio_utc=inicio, estado="TIMED", liga=liga,
+                               temporada=f"{inicio.year}-{str(inicio.year + 1)[-2:]}",
+                               local_id=local, visitante_id=visita, goles_local=None, goles_visitante=None))
+                creados += 1
+            else:
+                partido.inicio_utc, partido.estado = inicio, "TIMED"
+                actualizados += 1
+        db.commit()
+    print(f"  {liga}: {creados} creados y {actualizados} actualizados desde cuotas. "
+          f"Créditos: {respuesta.headers.get('x-requests-last', '?')}; "
+          f"restantes: {respuesta.headers.get('x-requests-remaining', '?')}")
+    if sin_pareja:
+        print(f"  Sin coincidencia en {liga} (agrega alias):", sorted(sin_pareja))
+
+
 def sincronizar_todas(ligas: list[str] | None = None, dias: int = 14) -> None:
     ligas = ligas or list(LIGAS)
     for i, liga in enumerate(ligas):
@@ -214,5 +291,11 @@ def sincronizar_todas(ligas: list[str] | None = None, dias: int = 14) -> None:
 
 
 if __name__ == "__main__":
-    codigos = [a.upper() for a in sys.argv[1:]] or list(LIGAS)
-    sincronizar_todas([c for c in codigos if c in LIGAS])
+    usar_cuotas = "--cuotas" in sys.argv[1:]
+    codigos = [a.upper() for a in sys.argv[1:] if a != "--cuotas"] or list(LIGAS)
+    codigos = [c for c in codigos if c in LIGAS]
+    if usar_cuotas:
+        for codigo in codigos:
+            sincronizar_desde_cuotas(codigo)
+    else:
+        sincronizar_todas(codigos)

@@ -84,6 +84,25 @@ Limitaciones actuales que conviene conocer:
 | `F1` | Ligue 1 |
 | `N1` | Eredivisie |
 | `P1` | Primeira Liga |
+| `MX1` | Liga MX |
+| `MLS` | Major League Soccer |
+| `CL` | UEFA Champions League |
+| `EL` | UEFA Europa League |
+
+Liga MX y MLS importan su histórico desde los archivos mundiales de football-data.co.uk, disponibles desde 2012. Champions League usa football-data.org para histórico y calendario. La clave configurada actualmente no incluye Liga MX, MLS ni Europa League en football-data.org: al ejecutar la sincronización, Liga MX y MLS se omiten de calendario y Europa League informa que tu plan no autoriza la competencia. Las cuatro tienen soporte de cuotas en The Odds API; sin calendario e histórico suficientes no se generan pronósticos utilizables.
+
+Para crear o actualizar próximos encuentros de Liga MX y MLS desde The Odds API, usa este comando explícito, que consume créditos:
+
+```powershell
+python -m app.services.fixtures MX1 MLS --cuotas
+```
+
+Solo guarda equipos que ya tengan historial en la liga y muestra los nombres que requieren un alias. Después ejecuta `python -m app.services.pronosticar` de forma explícita para cada liga:
+
+```powershell
+python -c "from app.services.pronosticar import generar; generar('MX1')"
+python -c "from app.services.pronosticar import generar; generar('MLS')"
+```
 
 ## Instalación local en Windows / PowerShell
 
@@ -192,6 +211,14 @@ Para comenzar solo con Premier League:
 python -m app.tareas E0
 python -m app.services.cuotas E0
 ```
+
+Para importar por primera vez las nuevas ligas:
+
+```powershell
+python -m app.services.importar MX1 MLS CL EL
+```
+
+La importación de Champions League consulta una temporada por solicitud y puede tardar. Europa League mostrará una omisión mientras la clave de football-data.org no tenga cobertura. Tras una importación con resultados, ejecuta `python -m app.tareas CL` para traer su calendario y generar pronósticos.
 
 ### 5. Abrir la aplicación
 

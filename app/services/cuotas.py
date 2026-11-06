@@ -25,6 +25,10 @@ ODDS_DEPORTES = {
     "F1": "soccer_france_ligue_one",
     "N1": "soccer_netherlands_eredivisie",
     "P1": "soccer_portugal_primeira_liga",
+    "MX1": "soccer_mexico_ligamx",
+    "MLS": "soccer_usa_mls",
+    "CL": "soccer_uefa_champs_league",
+    "EL": "soccer_uefa_europa_league",
 }
 ALIAS_CUOTAS = {
     "brighton and hove albion": "Brighton",

@@ -36,7 +36,9 @@ class CuotasTest(unittest.TestCase):
         self.assertEqual(curva["peor_drawdown"], -100)
 
     def test_ligas_configuradas_tienen_un_deporte_de_cuotas(self):
-        self.assertEqual(set(ODDS_DEPORTES), {"E0", "SP1", "I1", "D1", "F1", "N1", "P1"})
+        self.assertEqual(set(ODDS_DEPORTES), {
+            "E0", "SP1", "I1", "D1", "F1", "N1", "P1", "MX1", "MLS", "CL", "EL",
+        })
 
     def test_alias_de_equipos_de_premier(self):
         conocidos = {"coventry": 1, "hull": 2, "brighton": 3}
