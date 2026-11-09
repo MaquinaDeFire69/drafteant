@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import inspect, or_, select
 from sqlalchemy.orm import Session, aliased
 
-from app.ligas import nombre_liga
+from app.ligas import LIGAS, nombre_liga
 from app.models import Cuota, CuotaMercado, Equipo, Partido, Pronostico
 
 RESULTADOS = ("local", "empate", "visitante")
@@ -14,6 +14,54 @@ INTERVALOS_CALIBRACION = 10
 
 def _utc(valor: datetime) -> datetime:
     return valor.replace(tzinfo=timezone.utc) if valor.tzinfo is None else valor.astimezone(timezone.utc)
+
+
+def posiciones_tabla(db: Session, liga: str, temporada: str) -> dict[int, int]:
+    """Calcula posiciones con los resultados disponibles de una liga y temporada."""
+    if LIGAS.get(liga, {}).get("historico") == "api":
+        return {}
+
+    local, visita = aliased(Equipo), aliased(Equipo)
+    partidos = db.execute(
+        select(Partido, local.nombre, visita.nombre)
+        .join(local, local.id == Partido.local_id)
+        .join(visita, visita.id == Partido.visitante_id)
+        .where(
+            Partido.liga == liga,
+            Partido.temporada == temporada,
+            Partido.goles_local.is_not(None),
+            Partido.goles_visitante.is_not(None),
+        )
+    ).all()
+
+    tabla = {}
+    for partido, nombre_local, nombre_visita in partidos:
+        local_stats = tabla.setdefault(partido.local_id, {
+            "nombre": nombre_local, "puntos": 0, "diferencia": 0, "favor": 0,
+        })
+        visita_stats = tabla.setdefault(partido.visitante_id, {
+            "nombre": nombre_visita, "puntos": 0, "diferencia": 0, "favor": 0,
+        })
+        goles_local, goles_visita = partido.goles_local, partido.goles_visitante
+        local_stats["favor"] += goles_local
+        local_stats["diferencia"] += goles_local - goles_visita
+        visita_stats["favor"] += goles_visita
+        visita_stats["diferencia"] += goles_visita - goles_local
+        if goles_local > goles_visita:
+            local_stats["puntos"] += 3
+        elif goles_local < goles_visita:
+            visita_stats["puntos"] += 3
+        else:
+            local_stats["puntos"] += 1
+            visita_stats["puntos"] += 1
+
+    ordenados = sorted(
+        tabla.items(),
+        key=lambda item: (
+            -item[1]["puntos"], -item[1]["diferencia"], -item[1]["favor"], item[1]["nombre"].casefold()
+        ),
+    )
+    return {equipo_id: posicion for posicion, (equipo_id, _) in enumerate(ordenados, start=1)}
 
 
 def proximos_partidos(db: Session, liga: str | None = None, dias: int = 14) -> list[dict]:
@@ -33,6 +81,11 @@ def proximos_partidos(db: Session, liga: str | None = None, dias: int = 14) -> l
     if liga:
         consulta = consulta.where(Partido.liga == liga)
     filas = db.execute(consulta.order_by(Partido.fecha, Partido.liga, Partido.id)).all()
+    posiciones = {}
+    for partido, *_ in filas:
+        clave = (partido.liga, partido.temporada)
+        if clave not in posiciones:
+            posiciones[clave] = posiciones_tabla(db, *clave)
 
     pron = {}
     ids = [p.id for p, *_ in filas]
@@ -49,6 +102,8 @@ def proximos_partidos(db: Session, liga: str | None = None, dias: int = 14) -> l
             "id": p.id, "fecha": p.fecha, "liga": p.liga, "nombre_liga": nombre_liga(p.liga),
             "local": l, "local_escudo": escudo_local,
             "visitante": v, "visitante_escudo": escudo_visita,
+            "posicion_local": posiciones[(p.liga, p.temporada)].get(p.local_id),
+            "posicion_visitante": posiciones[(p.liga, p.temporada)].get(p.visitante_id),
             "inicio_utc": p.inicio_utc, "estado": p.estado,
             "pron": pron.get(p.id),
         }

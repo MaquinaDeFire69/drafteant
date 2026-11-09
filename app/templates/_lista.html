@@ -16,11 +16,11 @@
       <div class="mb-3 flex items-center justify-between gap-2 font-semibold">
         <span class="flex min-w-0 flex-1 items-center gap-2 text-left">
           {{ escudo(m.local, m.local_escudo) }}
-          <span class="truncate">{{ m.local }}</span>
+          <span class="min-w-0 truncate">{{ m.local }}{% if m.posicion_local %}<span class="ml-1 text-xs font-normal text-slate-500">· {{ m.posicion_local }}.º</span>{% endif %}</span>
         </span>
         <span class="text-xs text-slate-400">vs</span>
         <span class="flex min-w-0 flex-1 items-center justify-end gap-2 text-right">
-          <span class="truncate">{{ m.visitante }}</span>
+          <span class="min-w-0 truncate">{{ m.visitante }}{% if m.posicion_visitante %}<span class="ml-1 text-xs font-normal text-slate-500">· {{ m.posicion_visitante }}.º</span>{% endif %}</span>
           {{ escudo(m.visitante, m.visitante_escudo) }}
         </span>
       </div>

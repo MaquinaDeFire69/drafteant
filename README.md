@@ -28,7 +28,7 @@ Las fuentes football-data.co.uk y football-data.org son servicios distintos. Los
 
 Muestra partidos futuros por liga y periodo, con estado, hora de inicio y probabilidades del último pronóstico guardado. Las horas de las vistas se presentan en la zona de Ciudad de México.
 
-Las tarjetas muestran el escudo cuando football-data.org lo incluye en el calendario o se obtiene con la sincronización de escudos; si no hay imagen disponible, muestran las iniciales del equipo. El detalle `/partido/{id}` permite consultar el partido, la forma reciente de los equipos y, cuando hay datos suficientes, marcadores probables y mercados derivados como ambos anotan y más de 2.5 goles.
+Las tarjetas muestran el escudo cuando football-data.org lo incluye en el calendario o se obtiene con la sincronización de escudos; si no hay imagen disponible, muestran las iniciales del equipo. También muestran la posición de cada equipo, calculada con los resultados finalizados de la liga y temporada presentes en la base de datos (puntos, diferencia de goles y goles a favor). Las competiciones de copa como Champions League y Europa League no muestran posición de liga. El detalle `/partido/{id}` permite consultar el partido, la forma reciente de los equipos y, cuando hay datos suficientes, marcadores probables y mercados derivados como ambos anotan y más de 2.5 goles.
 
 ### Precisión — `/precision`
 

@@ -16,7 +16,7 @@ from app.models import Equipo, ParlaySimulado, Partido, Pronostico, SeleccionSeg
 from app.services.cache import modelo_para
 from app.services.consultas import (
     agregar_cuotas, forma, limitar_candidatas, parlays, precision, proximos_partidos, selecciones_destacadas,
-    selecciones_1x2, selecciones_mercados, versiones_pronostico,
+    posiciones_tabla, selecciones_1x2, selecciones_mercados, versiones_pronostico,
 )
 from app.services.seguimiento import (
     candidatas_parlay, casas_disponibles, configuracion_exposicion, crear_parlay_simulado, curva_banca,
@@ -111,9 +111,12 @@ def detalle(request: Request, partido_id: int, db: Session = Depends(get_db)):
         except ValueError:
             extra = None
 
+    posiciones = posiciones_tabla(db, p.liga, p.temporada)
     return templates.TemplateResponse(request, "partido.html", {
         "p": p, "local": local.nombre, "visita": visita.nombre, "pron": pron, "extra": extra,
         "escudo_local": local.escudo_url, "escudo_visita": visita.escudo_url,
+        "posicion_local": posiciones.get(local.id),
+        "posicion_visita": posiciones.get(visita.id),
         "nombre_liga": nombre_liga(p.liga),
         "forma_local": forma(db, local.id), "forma_visita": forma(db, visita.id),
     })

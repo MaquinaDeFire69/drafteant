@@ -8,12 +8,45 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base
 from app.models import Cuota, CuotaMercado, Equipo, Partido, PiernaParlay, Pronostico
-from app.services.consultas import parlays, proximos_partidos, selecciones_1x2, selecciones_mercados
+from app.services.consultas import (
+    parlays, posiciones_tabla, proximos_partidos, selecciones_1x2, selecciones_mercados,
+)
 from app.services.mercados import capturar_mercados, interpretar_mercado
 from app.services.seguimiento import crear_parlay_simulado, rendimiento_parlays
 
 
 class MercadosTest(unittest.TestCase):
+    def test_posiciones_tabla_se_calculan_por_liga_y_temporada(self):
+        motor = create_engine("sqlite+pysqlite://", connect_args={"check_same_thread": False},
+                             poolclass=StaticPool)
+        Base.metadata.create_all(motor)
+        Sesion = sessionmaker(bind=motor)
+        with Sesion() as db:
+            primero, segundo, tercero = [Equipo(nombre=n) for n in ("Primero", "Segundo", "Tercero")]
+            db.add_all((primero, segundo, tercero))
+            db.flush()
+            db.add_all([
+                Partido(fecha=datetime.now().date(), liga="E0", temporada="2026-27",
+                        local_id=primero.id, visitante_id=segundo.id, goles_local=2,
+                        goles_visitante=0, estado="FINISHED"),
+                Partido(fecha=datetime.now().date(), liga="E0", temporada="2026-27",
+                        local_id=tercero.id, visitante_id=primero.id, goles_local=0,
+                        goles_visitante=1, estado="FINISHED"),
+                Partido(fecha=datetime.now().date(), liga="E0", temporada="2026-27",
+                        local_id=segundo.id, visitante_id=tercero.id, goles_local=3,
+                        goles_visitante=0, estado="FINISHED"),
+                Partido(fecha=datetime.now().date() - timedelta(days=365), liga="E0", temporada="2025-26",
+                        local_id=segundo.id, visitante_id=tercero.id, goles_local=5,
+                        goles_visitante=0, estado="FINISHED"),
+            ])
+            db.commit()
+            self.assertEqual(
+                posiciones_tabla(db, "E0", "2026-27"),
+                {primero.id: 1, segundo.id: 2, tercero.id: 3},
+            )
+            self.assertEqual(posiciones_tabla(db, "CL", "2026-27"), {})
+        motor.dispose()
+
     def test_captura_evento_sin_duplicar_mercados(self):
         motor = create_engine("sqlite+pysqlite://", connect_args={"check_same_thread": False},
                              poolclass=StaticPool)
@@ -110,8 +143,13 @@ class MercadosTest(unittest.TestCase):
                                     casa="casa", mercado=mercado, opcion=opcion,
                                     linea=2.5 if indice == 0 else 0.0, cuota_decimal=2.0,
                                     actualizada_en=ahora, capturada_en=ahora))
+            db.add(Partido(fecha=inicio.date() - timedelta(days=2), liga="E0", temporada="2026-27",
+                           local_id=equipos[0].id, visitante_id=equipos[1].id, goles_local=3,
+                           goles_visitante=0, estado="FINISHED"))
             db.commit()
             partidos = proximos_partidos(db, liga="E0")
+            self.assertEqual(partidos[0]["posicion_local"], 1)
+            self.assertEqual(partidos[0]["posicion_visitante"], 2)
             self.assertEqual(len(selecciones_1x2(db, partidos)), 6)
             goles = selecciones_mercados(db, partidos, "total_25")
             ambos = selecciones_mercados(db, partidos, "btts")
