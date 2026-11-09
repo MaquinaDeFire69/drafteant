@@ -113,6 +113,7 @@ def detalle(request: Request, partido_id: int, db: Session = Depends(get_db)):
 
     return templates.TemplateResponse(request, "partido.html", {
         "p": p, "local": local.nombre, "visita": visita.nombre, "pron": pron, "extra": extra,
+        "escudo_local": local.escudo_url, "escudo_visita": visita.escudo_url,
         "nombre_liga": nombre_liga(p.liga),
         "forma_local": forma(db, local.id), "forma_visita": forma(db, visita.id),
     })

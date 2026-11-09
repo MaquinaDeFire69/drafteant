@@ -8,6 +8,7 @@ class Equipo(Base):
     __tablename__ = "equipos"
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(100), unique=True)
+    escudo_url: Mapped[str | None] = mapped_column(String(500))
 
 
 class Partido(Base):

@@ -12,6 +12,7 @@ from app.database import SessionLocal
 from app.config import settings
 from app.ligas import LIGAS, temporada_actual
 from app.models import Equipo, Partido
+from app.services.escudos import sincronizar_todos
 
 URL = "https://www.football-data.co.uk/mmz4281/{codigo}/{liga}.csv"
 URL_MUNDIAL = "https://www.football-data.co.uk/new/{liga}.csv"
@@ -144,6 +145,8 @@ def importar(liga: str, anio_inicio: int, anio_fin: int) -> None:
             db.execute(stmt)
             db.commit()
             print(f"  {liga} {anio or 'histórico mundial'}: {len(filas)} partidos procesados")
+
+    sincronizar_todos([liga])
 
 
 if __name__ == "__main__":

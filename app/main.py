@@ -40,6 +40,7 @@ def proximos(liga: str = "E0", dias: int = 14, db: Session = Depends(get_db)):
         {
             "id": m["id"], "fecha": m["fecha"], "inicio_utc": m["inicio_utc"], "estado": m["estado"],
             "local": m["local"], "visitante": m["visitante"],
+            "local_escudo": m["local_escudo"], "visitante_escudo": m["visitante_escudo"],
             "prob_local": round(m["pron"].prob_local, 3) if m["pron"] else None,
             "prob_empate": round(m["pron"].prob_empate, 3) if m["pron"] else None,
             "prob_visitante": round(m["pron"].prob_visitante, 3) if m["pron"] else None,

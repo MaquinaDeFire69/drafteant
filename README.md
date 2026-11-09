@@ -28,7 +28,7 @@ Las fuentes football-data.co.uk y football-data.org son servicios distintos. Los
 
 Muestra partidos futuros por liga y periodo, con estado, hora de inicio y probabilidades del último pronóstico guardado. Las horas de las vistas se presentan en la zona de Ciudad de México.
 
-El detalle `/partido/{id}` permite consultar el partido, la forma reciente de los equipos y, cuando hay datos suficientes, marcadores probables y mercados derivados como ambos anotan y más de 2.5 goles.
+Las tarjetas muestran el escudo cuando football-data.org lo incluye en el calendario o se obtiene con la sincronización de escudos; si no hay imagen disponible, muestran las iniciales del equipo. El detalle `/partido/{id}` permite consultar el partido, la forma reciente de los equipos y, cuando hay datos suficientes, marcadores probables y mercados derivados como ambos anotan y más de 2.5 goles.
 
 ### Precisión — `/precision`
 
@@ -141,8 +141,9 @@ ODDS_API_KEY=TU_CLAVE_ODDS_API
 | Variable | Uso |
 | --- | --- |
 | `DATABASE_URL` | Obligatoria para conectar PostgreSQL. Ajusta usuario, contraseña, host, puerto y nombre de BD. |
-| `FOOTBALL_DATA_API_KEY` | Sincronización del calendario mediante football-data.org. |
+| `FOOTBALL_DATA_API_KEY` | Sincronización del calendario y de escudos de equipos mediante football-data.org. |
 | `ODDS_API_KEY` | Captura manual de cuotas mediante The Odds API. |
+| `THESPORTSDB_API_KEY` | Opcional; clave de TheSportsDB para completar escudos (la clave gratuita `123` se usa por defecto). |
 
 Si la contraseña contiene caracteres especiales de URL, deben codificarse en la cadena de conexión. `.env` está excluido de Git; no publiques claves ni contraseñas. Reinicia la aplicación tras cambiar la configuración.
 
@@ -266,6 +267,8 @@ python -m app.services.importar E0 SP1
 
 Importa desde 2018 hasta la temporada actual. Añade equipos/partidos y actualiza resultados existentes. Úsalo para llenar una BD nueva o ampliar el histórico; para el mantenimiento habitual es suficiente `app.tareas`.
 
+Al finalizar cada importación, se sincronizan automáticamente los escudos disponibles con football-data.org y TheSportsDB. Si una fuente falla o no ofrece una liga, el error se informa y la importación de resultados no se interrumpe.
+
 ### Solo sincronizar calendario
 
 ```powershell
@@ -280,6 +283,19 @@ python -c "from app.services.fixtures import sincronizar; sincronizar('E0', dias
 ```
 
 Seleccionar 30 días en una vista no descarga automáticamente 30 días de calendario: muestra los partidos que ya estén en la BD.
+
+### Reintentar la sincronización de escudos
+
+```powershell
+python -m app.services.escudos
+python -m app.services.escudos E0 SP1
+```
+
+Consulta football-data.org y luego TheSportsDB para completar los escudos que falten en `equipos.escudo_url`; no reemplaza los escudos existentes. El segundo proveedor cubre las ligas nacionales configuradas, Liga MX y MLS. Para Champions y Europa League busca los equipos en las ligas nacionales disponibles en TheSportsDB, así que algunos clubes pueden no aparecer. Solo se guardan URLs HTTPS alojadas por TheSportsDB. Si una liga no está cubierta por los proveedores, se mantienen las iniciales como alternativa.
+
+La importación histórica y la actualización habitual con `app.tareas` ya realizan este intento automáticamente. Usa este comando solo si quieres reintentar sin importar resultados.
+
+TheSportsDB tiene límites de uso y sus imágenes pueden estar sujetas a licencias de terceros. Verifica los derechos de cada escudo antes de publicar la aplicación o reutilizar imágenes fuera de tu entorno de desarrollo; consulta sus [términos de uso](https://www.thesportsdb.com/docs_terms_of_use.php).
 
 ### Solo generar pronósticos
 

@@ -20,7 +20,7 @@ def proximos_partidos(db: Session, liga: str | None = None, dias: int = 14) -> l
     hoy = date.today()
     local, visita = aliased(Equipo), aliased(Equipo)
     consulta = (
-        select(Partido, local.nombre, visita.nombre)
+        select(Partido, local.nombre, local.escudo_url, visita.nombre, visita.escudo_url)
         .join(local, local.id == Partido.local_id)
         .join(visita, visita.id == Partido.visitante_id)
         .where(
@@ -35,7 +35,7 @@ def proximos_partidos(db: Session, liga: str | None = None, dias: int = 14) -> l
     filas = db.execute(consulta.order_by(Partido.fecha, Partido.liga, Partido.id)).all()
 
     pron = {}
-    ids = [p.id for p, _, _ in filas]
+    ids = [p.id for p, *_ in filas]
     if ids:
         for pr in db.scalars(
             select(Pronostico)
@@ -47,10 +47,12 @@ def proximos_partidos(db: Session, liga: str | None = None, dias: int = 14) -> l
     return [
         {
             "id": p.id, "fecha": p.fecha, "liga": p.liga, "nombre_liga": nombre_liga(p.liga),
-            "local": l, "visitante": v, "inicio_utc": p.inicio_utc, "estado": p.estado,
+            "local": l, "local_escudo": escudo_local,
+            "visitante": v, "visitante_escudo": escudo_visita,
+            "inicio_utc": p.inicio_utc, "estado": p.estado,
             "pron": pron.get(p.id),
         }
-        for p, l, v in filas
+        for p, l, escudo_local, v, escudo_visita in filas
     ]
 
 
@@ -292,7 +294,7 @@ def forma(db: Session, equipo_id: int, n: int = 5) -> list[dict]:
     """Últimos n partidos jugados del equipo."""
     local, visita = aliased(Equipo), aliased(Equipo)
     filas = db.execute(
-        select(Partido, local.nombre, visita.nombre)
+        select(Partido, local.nombre, local.escudo_url, visita.nombre, visita.escudo_url)
         .join(local, local.id == Partido.local_id)
         .join(visita, visita.id == Partido.visitante_id)
         .where(
@@ -304,12 +306,13 @@ def forma(db: Session, equipo_id: int, n: int = 5) -> list[dict]:
     ).all()
 
     salida = []
-    for p, l, v in filas:
+    for p, l, escudo_local, v, escudo_visita in filas:
         es_local = p.local_id == equipo_id
         gf, gc = (p.goles_local, p.goles_visitante) if es_local else (p.goles_visitante, p.goles_local)
         salida.append({
             "fecha": p.fecha,
             "rival": v if es_local else l,
+            "rival_escudo": escudo_visita if es_local else escudo_local,
             "condicion": "L" if es_local else "V",
             "marcador": f"{p.goles_local}-{p.goles_visitante}",
             "resultado": "G" if gf > gc else ("E" if gf == gc else "P"),

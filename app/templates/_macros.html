@@ -15,12 +15,26 @@
   {% endif %}
 {% endmacro %}
 
+{% macro escudo(nombre, url, clase="") %}
+<span class="relative inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-xs font-bold text-slate-500 {{ clase }}"
+      role="img" aria-label="Escudo de {{ nombre }}" title="{{ nombre }}">
+  <span aria-hidden="true">{{ nombre[:2]|upper }}</span>
+  {% if url %}
+  <img src="{{ url }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"
+       class="absolute inset-0 h-full w-full bg-white object-contain" onerror="this.remove()">
+  {% endif %}
+</span>
+{% endmacro %}
+
 {% macro forma(lista) %}
   {% if lista %}
   <ul class="divide-y text-sm">
     {% for f in lista %}
     <li class="flex items-center justify-between py-1.5">
-      <span class="truncate">{{ f.condicion }} · {{ f.rival }}</span>
+      <span class="flex min-w-0 items-center gap-2">
+        {{ escudo(f.rival, f.rival_escudo, "size-6 text-[9px]") }}
+        <span class="truncate">{{ f.condicion }} · {{ f.rival }}</span>
+      </span>
       <span class="flex items-center gap-2">
         <span class="text-slate-500">{{ f.marcador }}</span>
         <span class="w-6 text-center rounded text-xs font-bold text-white

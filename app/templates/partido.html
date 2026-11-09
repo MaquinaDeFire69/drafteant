@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import barra, forma %}
+{% from "_macros.html" import barra, escudo, forma %}
 {% block titulo %}{{ local }} vs {{ visita }}{% endblock %}
 {% block contenido %}
 <a href="/" class="text-sm text-blue-600 hover:underline">← Volver</a>
@@ -15,13 +15,19 @@
       {% endif %}
     </p>
   <div class="my-3 flex items-center justify-between gap-2 text-lg font-bold">
-    <span class="flex-1">{{ local }}</span>
+    <span class="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
+      {{ escudo(local, escudo_local, "size-16 text-base") }}
+      <span class="text-sm sm:text-base">{{ local }}</span>
+    </span>
     {% if p.goles_local is not none %}
       <span class="rounded-lg bg-slate-800 px-3 py-1 text-white">{{ p.goles_local }} - {{ p.goles_visitante }}</span>
     {% else %}
       <span class="text-sm text-slate-400">vs</span>
     {% endif %}
-    <span class="flex-1 text-right">{{ visita }}</span>
+    <span class="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
+      {{ escudo(visita, escudo_visita, "size-16 text-base") }}
+      <span class="text-sm sm:text-base">{{ visita }}</span>
+    </span>
   </div>
   {{ barra(pron) }}
 </div>

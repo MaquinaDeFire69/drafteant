@@ -1,4 +1,4 @@
-{% from "_macros.html" import barra %}
+{% from "_macros.html" import barra, escudo %}
 {% if not partidos %}
   <p class="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">
     No hay partidos en este rango. Ejecuta <code>python -m app.tareas</code> para actualizar los datos.
@@ -14,9 +14,15 @@
       <p class="mb-1 text-xs text-slate-400">{{ m.nombre_liga }}</p>
       {% endif %}
       <div class="mb-3 flex items-center justify-between gap-2 font-semibold">
-        <span class="flex-1 text-left">{{ m.local }}</span>
+        <span class="flex min-w-0 flex-1 items-center gap-2 text-left">
+          {{ escudo(m.local, m.local_escudo) }}
+          <span class="truncate">{{ m.local }}</span>
+        </span>
         <span class="text-xs text-slate-400">vs</span>
-        <span class="flex-1 text-right">{{ m.visitante }}</span>
+        <span class="flex min-w-0 flex-1 items-center justify-end gap-2 text-right">
+          <span class="truncate">{{ m.visitante }}</span>
+          {{ escudo(m.visitante, m.visitante_escudo) }}
+        </span>
       </div>
       <p class="mb-3 flex items-center justify-between gap-2 text-xs text-slate-500">
         <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium">{{ m.estado|estado_es }}</span>

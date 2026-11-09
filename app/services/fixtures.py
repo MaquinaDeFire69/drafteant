@@ -170,6 +170,13 @@ def sincronizar(liga: str, dias: int = 14) -> None:
                 sin_pareja.add(m["awayTeam"].get("name"))
             if local is None or visita is None:
                 continue
+            for equipo_id, datos_equipo in (
+                (local, m["homeTeam"]),
+                (visita, m["awayTeam"]),
+            ):
+                escudo = datos_equipo.get("crest")
+                if isinstance(escudo, str) and escudo.startswith("https://crests.football-data.org/"):
+                    db.get(Equipo, equipo_id).escudo_url = escudo
             inicio_utc = datetime.fromisoformat(m["utcDate"].replace("Z", "+00:00"))
             filas.append({
                 "api_partido_id": m["id"],

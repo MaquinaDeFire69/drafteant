@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     database_url: str
     football_data_api_key: str = ""
     odds_api_key: str = ""
+    thesportsdb_api_key: str = "123"
     model_config = SettingsConfigDict(env_file=".env")
 
 
